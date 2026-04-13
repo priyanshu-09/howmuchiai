@@ -1,0 +1,35 @@
+# Rust
+/target/
+scanner/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node/Next.js
+node_modules/
+.next/
+out/
+website/.next/
+website/node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+*.o
+*.d
+*.exe
+
+# Claude Code
+.remember/
