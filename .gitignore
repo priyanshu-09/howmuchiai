@@ -2,7 +2,7 @@
 /target/
 scanner/target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock IS committed — standard for binary crates (ensures reproducible builds)
 
 # Node/Next.js
 node_modules/
