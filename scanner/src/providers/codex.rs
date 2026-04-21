@@ -69,7 +69,7 @@ impl Provider for CodexProvider {
             }
 
             // Hours: duration of each thread, capped at 24h
-            let duration = (updated_at - created_at).max(0).min(86400);
+            let duration = (updated_at - created_at).clamp(0, 86400);
             total_hours += duration as f64 / 3600.0;
         }
 
@@ -88,9 +88,11 @@ impl Provider for CodexProvider {
         // If JSONL scanning didn't find model data, use DB data
         if models.is_empty() && !model_tokens_from_db.is_empty() {
             for (model_name, tok) in &model_tokens_from_db {
-                let mut usage = TokenUsage::default();
                 // We only have total tokens from DB, attribute to output
-                usage.output_tokens = *tok;
+                let mut usage = TokenUsage {
+                    output_tokens: *tok,
+                    ..Default::default()
+                };
                 usage.compute_total();
                 models.insert(
                     model_name.clone(),

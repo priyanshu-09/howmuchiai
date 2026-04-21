@@ -203,7 +203,7 @@ fn parse_bash_history(
 }
 
 /// Parse fish history format:
-/// ```
+/// ```text
 /// - cmd: some_command
 ///   when: 1234567890
 /// ```

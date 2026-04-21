@@ -40,7 +40,7 @@ impl Provider for ClaudeCodeProvider {
                 // Skip audit.jsonl files — they have a different format
                 paths.extend(glob_paths.filter_map(|p| p.ok()).filter(|p| {
                     !p.file_name()
-                        .map_or(false, |n| n.to_string_lossy().starts_with("audit"))
+                        .is_some_and(|n| n.to_string_lossy().starts_with("audit"))
                 }));
             }
         }

@@ -107,7 +107,7 @@ fn scan_chromium_history(
             let unix_ts = time_util::chrome_time_to_unix(visit_time);
 
             // Skip timestamps before 2020 or in the far future (bad data)
-            if unix_ts < 1_577_836_800 || unix_ts > 2_000_000_000 {
+            if !(1_577_836_800..=2_000_000_000).contains(&unix_ts) {
                 continue;
             }
 
@@ -207,7 +207,7 @@ fn scan_safari_history(path: &std::path::Path) -> Result<ProviderResult, ScanErr
 
         let unix_ts = time_util::safari_time_to_unix(visit_time);
 
-        if unix_ts < 1_577_836_800 || unix_ts > 2_000_000_000 {
+        if !(1_577_836_800..=2_000_000_000).contains(&unix_ts) {
             continue;
         }
 
@@ -321,7 +321,7 @@ fn scan_firefox_history(paths: &[PathBuf]) -> Result<ProviderResult, ScanError> 
 
             let unix_ts = time_util::firefox_time_to_unix(visit_date);
 
-            if unix_ts < 1_577_836_800 || unix_ts > 2_000_000_000 {
+            if !(1_577_836_800..=2_000_000_000).contains(&unix_ts) {
                 continue;
             }
 

@@ -59,7 +59,7 @@ impl Provider for CursorProvider {
                 let created_at = created_at_ms / 1000;
 
                 // Skip unreasonable timestamps
-                if created_at < 1_577_836_800 || created_at > 2_000_000_000 {
+                if !(1_577_836_800..=2_000_000_000).contains(&created_at) {
                     continue;
                 }
 
