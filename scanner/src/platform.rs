@@ -130,6 +130,44 @@ pub fn firefox_history_paths() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+// --- Dia ---
+
+pub fn dia_history_paths() -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut paths = Vec::new();
+
+    if cfg!(target_os = "macos") {
+        let base = home.join("Library/Application Support/Dia/User Data");
+        paths.push(base.join("Default/History"));
+    }
+
+    paths.into_iter().filter(|p| p.exists()).collect()
+}
+
+// --- Claude Desktop ---
+
+pub fn claude_desktop_sessions_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let p = home_dir().join("Library/Application Support/Claude/local-agent-mode-sessions");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+// --- ChatGPT Desktop ---
+
+pub fn chatgpt_desktop_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let p = home_dir().join("Library/Application Support/com.openai.chat");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 // --- Cursor ---
 
 pub fn cursor_state_db() -> Option<PathBuf> {

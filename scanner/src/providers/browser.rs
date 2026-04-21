@@ -463,6 +463,27 @@ impl Provider for EdgeProvider {
     }
 }
 
+pub struct DiaProvider;
+
+impl Provider for DiaProvider {
+    fn name(&self) -> &'static str {
+        "dia_browser"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Dia Browser"
+    }
+
+    fn is_available(&self) -> bool {
+        !platform::dia_history_paths().is_empty()
+    }
+
+    fn scan(&self) -> Result<ProviderResult, ScanError> {
+        let paths = platform::dia_history_paths();
+        scan_chromium_history(&paths, "Dia")
+    }
+}
+
 pub struct SafariProvider;
 
 impl Provider for SafariProvider {

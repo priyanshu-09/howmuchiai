@@ -2,6 +2,7 @@ use crate::types::{ProviderResult, ScanError};
 
 pub mod aider;
 pub mod browser;
+pub mod chatgpt_desktop;
 pub mod claude_code;
 pub mod codex;
 pub mod continue_ext;
@@ -34,10 +35,12 @@ pub trait Provider: Send + Sync {
 pub fn all_providers() -> Vec<Box<dyn Provider>> {
     vec![
         Box::new(claude_code::ClaudeCodeProvider),
+        Box::new(chatgpt_desktop::ChatGPTDesktopProvider),
         Box::new(browser::ChromeProvider),
         Box::new(browser::ArcProvider),
         Box::new(browser::BraveProvider),
         Box::new(browser::EdgeProvider),
+        Box::new(browser::DiaProvider),
         Box::new(browser::SafariProvider),
         Box::new(browser::FirefoxProvider),
         Box::new(codex::CodexProvider),

@@ -12,10 +12,9 @@ pub struct TokenUsage {
 
 impl TokenUsage {
     pub fn compute_total(&mut self) {
-        self.total = self.input_tokens
-            + self.output_tokens
-            + self.cache_read_tokens
-            + self.cache_creation_tokens;
+        // Total = input + output only. Cache tokens are tracked separately
+        // because cache_read inflates totals by 10-100x (re-reads of cached prompts).
+        self.total = self.input_tokens + self.output_tokens;
     }
 
     pub fn merge(&mut self, other: &TokenUsage) {

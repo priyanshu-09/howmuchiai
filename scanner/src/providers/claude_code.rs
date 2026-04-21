@@ -18,21 +18,32 @@ impl Provider for ClaudeCodeProvider {
 
     fn is_available(&self) -> bool {
         platform::claude_projects_dir().exists()
+            || platform::claude_desktop_sessions_dir().is_some()
     }
 
     fn scan(&self) -> Result<ProviderResult, ScanError> {
-        let projects_dir = platform::claude_projects_dir();
-        let pattern = format!("{}/**/*.jsonl", projects_dir.display());
+        let mut paths: Vec<std::path::PathBuf> = Vec::new();
 
-        let paths: Vec<_> = glob::glob(&pattern)
-            .map_err(|e| {
-                ScanError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?
-            .filter_map(|p| p.ok())
-            .collect();
+        // Claude Code CLI sessions
+        let projects_dir = platform::claude_projects_dir();
+        if projects_dir.exists() {
+            let pattern = format!("{}/**/*.jsonl", projects_dir.display());
+            if let Ok(glob_paths) = glob::glob(&pattern) {
+                paths.extend(glob_paths.filter_map(|p| p.ok()));
+            }
+        }
+
+        // Claude Desktop local agent mode sessions (same JSONL format)
+        if let Some(desktop_dir) = platform::claude_desktop_sessions_dir() {
+            let pattern = format!("{}/**/*.jsonl", desktop_dir.display());
+            if let Ok(glob_paths) = glob::glob(&pattern) {
+                // Skip audit.jsonl files — they have a different format
+                paths.extend(glob_paths.filter_map(|p| p.ok()).filter(|p| {
+                    !p.file_name()
+                        .map_or(false, |n| n.to_string_lossy().starts_with("audit"))
+                }));
+            }
+        }
 
         if paths.is_empty() {
             return Err(ScanError::NotFound(

@@ -4,13 +4,6 @@ scanner/target/
 **/*.rs.bk
 # Cargo.lock IS committed — standard for binary crates (ensures reproducible builds)
 
-# Node/Next.js
-node_modules/
-.next/
-out/
-website/.next/
-website/node_modules/
-
 # Environment
 .env
 .env.local
@@ -31,5 +24,6 @@ Thumbs.db
 *.d
 *.exe
 
-# Claude Code
+# Claude Code state (plans, memories, session data)
 .remember/
+.claude/
