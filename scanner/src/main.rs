@@ -1,18 +1,24 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use clap::Parser;
 
+const WEBSITE_BASE: &str = "https://howmuchiai.xyz";
+
 #[derive(Parser)]
 #[command(name = "howmuchiai", about = "Scan your machine for AI tool usage")]
 struct Cli {
-    /// Output format: json, pretty, or card-url
-    #[arg(short, long, default_value = "pretty")]
+    /// Output format: url (default) or json
+    #[arg(short, long, default_value = "url")]
     format: String,
+
+    /// Don't auto-open the browser
+    #[arg(long)]
+    no_open: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    eprintln!("\n\x1b[1m🔍 Scanning for AI usage...\x1b[0m\n");
+    eprintln!("\n\x1b[1m\u{1f50d} Scanning for AI usage...\x1b[0m\n");
 
     let result = howmuchiai::run_scan();
 
@@ -20,89 +26,53 @@ fn main() {
 
     match cli.format.as_str() {
         "json" => {
-            println!("{}", serde_json::to_string(&result).unwrap());
-        }
-        "card-url" => {
-            let compact = serde_json::json!({
-                "t": result.totals,
-                "s": result.sources.keys().collect::<Vec<_>>(),
-                "tier": result.tier,
-                "at": result.scanned_at,
-            });
-            let encoded = URL_SAFE_NO_PAD.encode(serde_json::to_string(&compact).unwrap());
-            println!("howmuchiai.xyz/c/{}", encoded);
+            // Raw JSON to stdout — for debugging, piping, or advanced use
+            println!("{}", serde_json::to_string(&result).unwrap_or_default());
         }
         _ => {
-            // Pretty print
-            println!("\x1b[1m═══════════════════════════════════════\x1b[0m");
-            println!("\x1b[1m  How Much I AI'd\x1b[0m");
-            println!("\x1b[1m═══════════════════════════════════════\x1b[0m\n");
+            // Default: show compact summary on stderr, URL on stdout
 
-            println!("  \x1b[1mTier:\x1b[0m {}", result.tier);
-            println!("  \x1b[1mTotal Hours:\x1b[0m {:.1}", result.totals.hours);
-            println!(
-                "  \x1b[1mTotal Tokens:\x1b[0m {}",
-                format_number(result.totals.tokens)
+            // Count successful sources
+            let source_count = result.sources.len();
+
+            // Show summary stats
+            let t = &result.totals;
+            let mut parts = Vec::new();
+            if t.hours > 0.0 {
+                parts.push(format!("{:.1}h", t.hours));
+            }
+            if t.tokens > 0 {
+                parts.push(format!("{} tokens", format_number(t.tokens)));
+            }
+            if t.sessions > 0 {
+                parts.push(format!("{} sessions", t.sessions));
+            }
+            if t.visits > 0 {
+                parts.push(format!("{} visits", format_number(t.visits)));
+            }
+
+            eprintln!(
+                "  \x1b[1mScanned {} sources in {}ms\x1b[0m",
+                source_count, result.scan_duration_ms
             );
-            println!("  \x1b[1mSessions:\x1b[0m {}", result.totals.sessions);
-            if result.totals.visits > 0 {
-                println!(
-                    "  \x1b[1mBrowser Visits:\x1b[0m {}",
-                    format_number(result.totals.visits)
-                );
-            }
-            if result.totals.invocations > 0 {
-                println!(
-                    "  \x1b[1mCLI Invocations:\x1b[0m {}",
-                    result.totals.invocations
-                );
+            if !parts.is_empty() {
+                eprintln!("  {}\n", parts.join(" \u{2022} "));
             }
 
-            println!("\n  \x1b[1m--- By Source ---\x1b[0m\n");
+            // Encode scan data as base64url hash
+            let scan_json = serde_json::to_string(&result).unwrap_or_default();
+            let hash = URL_SAFE_NO_PAD.encode(&scan_json);
+            let url = format!("{}/c/{}", WEBSITE_BASE, hash);
 
-            let mut sorted_sources: Vec<_> = result.sources.iter().collect();
-            sorted_sources.sort_by(|a, b| {
-                let hours_a = a.1.hours.unwrap_or(0.0);
-                let hours_b = b.1.hours.unwrap_or(0.0);
-                hours_b
-                    .partial_cmp(&hours_a)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // URL to stdout (pipeable)
+            println!("{}", url);
 
-            for (name, source) in &sorted_sources {
-                println!("  \x1b[36m{}\x1b[0m", name);
-                if let Some(h) = source.hours {
-                    println!("    Hours: {:.1}", h);
-                }
-                if let Some(ref t) = source.tokens {
-                    if t.total > 0 {
-                        println!("    Tokens: {}", format_number(t.total));
-                    }
-                }
-                if let Some(s) = source.sessions {
-                    println!("    Sessions: {}", s);
-                }
-                if let Some(v) = source.visits {
-                    println!("    Visits: {}", v);
-                }
-                if let Some(i) = source.invocations {
-                    println!("    Invocations: {}", i);
-                }
-                println!();
+            eprintln!("  \x1b[90mYour card \u{2192} open the link above\x1b[0m");
+
+            // Auto-open browser
+            if !cli.no_open {
+                let _ = open_browser(&url);
             }
-
-            if !result.detected_tools.is_empty() {
-                println!("  \x1b[1m--- Also Detected ---\x1b[0m\n");
-                for tool in &result.detected_tools {
-                    println!("  \x1b[90m• {}\x1b[0m", tool);
-                }
-                println!();
-            }
-
-            println!(
-                "  Scanned in {}ms on {}\n",
-                result.scan_duration_ms, result.platform
-            );
         }
     }
 }
@@ -115,4 +85,16 @@ fn format_number(n: u64) -> String {
     } else {
         n.to_string()
     }
+}
+
+fn open_browser(url: &str) -> Result<(), std::io::Error> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    Ok(())
 }

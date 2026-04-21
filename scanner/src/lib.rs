@@ -1,7 +1,6 @@
 pub mod platform;
 pub mod providers;
 pub mod sqlite_util;
-pub mod tier;
 pub mod time_util;
 pub mod types;
 
@@ -10,7 +9,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use types::{ScanResult, Totals};
 
-/// Run all providers in parallel, collect results, compute totals and tier.
+/// Run all providers in parallel, collect results, compute totals.
 pub fn run_scan() -> ScanResult {
     let start = std::time::Instant::now();
     let providers = all_providers();
@@ -23,12 +22,17 @@ pub fn run_scan() -> ScanResult {
             let name = p.name().to_string();
             let display = p.display_name();
             match p.scan() {
-                Ok(result) => {
-                    eprintln!("  \x1b[32m✓\x1b[0m {}", display);
-                    (name, Some(result))
+                Ok(ref result) => {
+                    let stats = format_provider_stats(result);
+                    if stats.is_empty() {
+                        eprintln!("  \x1b[32m✓\x1b[0m {}", display);
+                    } else {
+                        eprintln!("  \x1b[32m✓\x1b[0m {} \x1b[90m— {}\x1b[0m", display, stats);
+                    }
+                    (name, Some(result.clone()))
                 }
                 Err(e) => {
-                    eprintln!("  \x1b[31m✗\x1b[0m {} — {}", display, e);
+                    eprintln!("  \x1b[31m✗\x1b[0m {} \x1b[90m— {}\x1b[0m", display, e);
                     (name, None)
                 }
             }
@@ -49,12 +53,11 @@ pub fn run_scan() -> ScanResult {
         }
     }
 
-    // Detect Tier 3 tools
+    // Detect tools that are installed but lack detailed usage data
     let detected_tools = detection::detect_tools();
 
     // Compute totals
     let totals = compute_totals(&sources);
-    let tier_name = tier::compute_tier(&totals);
 
     let elapsed = start.elapsed();
 
@@ -64,8 +67,47 @@ pub fn run_scan() -> ScanResult {
         scan_duration_ms: elapsed.as_millis() as u64,
         sources,
         totals,
-        tier: tier_name,
         detected_tools,
+    }
+}
+
+fn format_provider_stats(result: &types::ProviderResult) -> String {
+    let mut parts = Vec::new();
+    if let Some(h) = result.hours {
+        if h >= 0.1 {
+            parts.push(format!("{:.1}h", h));
+        }
+    }
+    if let Some(ref t) = result.tokens {
+        if t.total > 0 {
+            parts.push(format!("{} tokens", format_compact(t.total)));
+        }
+    }
+    if let Some(s) = result.sessions {
+        if s > 0 {
+            parts.push(format!("{} sessions", s));
+        }
+    }
+    if let Some(v) = result.visits {
+        if v > 0 {
+            parts.push(format!("{} visits", v));
+        }
+    }
+    if let Some(i) = result.invocations {
+        if i > 0 {
+            parts.push(format!("{} invocations", i));
+        }
+    }
+    parts.join(", ")
+}
+
+fn format_compact(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
     }
 }
 

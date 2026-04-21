@@ -1,22 +1,14 @@
 # Contributing to howmuchiai
 
-Thanks for your interest in contributing! Here's how to get started.
+Thanks for your interest! This repo is the open-source scanner for [howmuchiai.xyz](https://howmuchiai.xyz). It scans local machines for AI tool usage — no network calls, no business logic.
 
 ## Development setup
 
 ```bash
-# Clone the repo
 git clone https://github.com/priyanshu-09/howmuchiai.git
 cd howmuchiai
-
-# Build
 cargo build
-
-# Run
-cargo run
-
-# Run with JSON output
-cargo run -- --format json
+cargo run -- --no-open
 ```
 
 ## Adding a new provider
@@ -38,26 +30,18 @@ impl Provider for YourProvider {
 ```
 
 3. Add platform paths to `scanner/src/platform.rs`
-4. Register in `scanner/src/providers/mod.rs`:
-   - Add `pub mod your_provider;`
-   - Add `Box::new(your_provider::YourProvider)` to `all_providers()`
+4. Register in `scanner/src/providers/mod.rs`
 5. Test on your machine
 
 ### Provider rules
 
-- **Never panic.** Use `Result` and `?` everywhere. Return `ScanError::NotFound` if data doesn't exist.
-- **Never network.** Providers read local files only. No HTTP, no APIs, no DNS.
+- **Never panic.** Use `Result` and `?` everywhere.
+- **Never network.** Providers read local files only.
 - **Never read secrets.** Don't touch `.env`, API keys, auth tokens, or cookies.
-- **Never store URLs.** Use SQL `CASE` expressions to convert URLs to display names server-side.
-- **Never store commands.** Shell history matching returns only tool names, never command text.
-- **Skip gracefully.** If a data source doesn't exist, return an error — don't crash.
+- **Never store URLs.** Use SQL `CASE` expressions to convert URLs to display names.
+- **Never store commands.** Shell history matching returns only tool names.
 - **Use SafeSqlite.** Always copy locked SQLite DBs to temp before reading.
-
-## Pull requests
-
-- One PR per feature/fix
-- Include what you tested and on which platform (macOS/Linux)
-- Keep PRs focused — don't bundle unrelated changes
+- **No business logic.** The scanner outputs raw data. The website handles tiers, cards, and presentation.
 
 ## Reporting security issues
 

@@ -1,7 +1,7 @@
 use crate::platform;
 use std::path::PathBuf;
 
-/// Detect Tier 3 AI tools that are installed but lack detailed usage data.
+/// Detect AI tools that are installed but lack detailed usage data.
 /// Returns a list of tool names that were found on this machine.
 pub fn detect_tools() -> Vec<String> {
     let mut detected = Vec::new();

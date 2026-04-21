@@ -93,7 +93,6 @@ pub struct ScanResult {
     pub scan_duration_ms: u64,
     pub sources: HashMap<String, ProviderResult>,
     pub totals: Totals,
-    pub tier: String,
     pub detected_tools: Vec<String>,
 }
 
