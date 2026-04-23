@@ -21,6 +21,20 @@ const AI_DOMAINS: &[(&str, &str)] = &[
     ("aistudio.google.com", "AI Studio"),
     ("you.com", "You.com"),
     ("labs.google", "Google Labs"),
+    ("lovable.dev", "Lovable"),
+    ("devin.ai", "Devin"),
+    ("v0.dev", "v0"),
+    ("v0.app", "v0"),
+    ("bolt.new", "Bolt"),
+    ("cursor.com/agents", "Cursor Agents"),
+    ("grok.com", "Grok"),
+    ("x.com/i/grok", "Grok"),
+    ("meta.ai", "Meta AI"),
+    ("character.ai", "Character.AI"),
+    ("chat.mistral.ai", "Le Chat (Mistral)"),
+    ("chat.qwen.ai", "Qwen"),
+    ("kimi.com", "Kimi"),
+    ("notebooklm.google.com", "NotebookLM"),
 ];
 
 /// Build SQL CASE expression that returns the display name for matched domains.

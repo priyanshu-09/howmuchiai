@@ -40,7 +40,9 @@ cargo build --release
 
 ### AI web apps detected via browser history
 
-Claude.ai, ChatGPT, Gemini, Perplexity, Poe, Phind, DeepSeek, Groq, HuggingFace Chat, AI Studio, You.com, Google Labs, Together AI, Copilot Web
+**Chat & research:** Claude.ai, ChatGPT, Gemini, Grok, Meta AI, Perplexity, Poe, DeepSeek, Le Chat (Mistral), Qwen, Kimi, Character.AI, Phind, You.com, HuggingFace Chat, Groq, AI Studio, NotebookLM, Google Labs, Copilot (Microsoft)
+
+**Coding agents & app builders:** Lovable, Devin, v0, Bolt, Cursor Agents
 
 ### Browsers scanned
 
