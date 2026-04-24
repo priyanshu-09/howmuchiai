@@ -37,6 +37,17 @@ pub struct ModelUsage {
     pub hours: f64,
 }
 
+/// Per-day usage aggregation keyed by UTC ISO date ("YYYY-MM-DD").
+/// Providers may optionally populate this for streak + heatmap widgets.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DailyBucket {
+    pub hours: f64,
+    pub tokens: u64,
+    pub sessions: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invocations: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderResult {
     pub provider: String,
@@ -58,6 +69,8 @@ pub struct ProviderResult {
     pub last_seen: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_buckets: Option<std::collections::HashMap<String, DailyBucket>>,
 }
 
 impl ProviderResult {
@@ -73,6 +86,7 @@ impl ProviderResult {
             first_seen: None,
             last_seen: None,
             metadata: None,
+            daily_buckets: None,
         }
     }
 }
@@ -86,9 +100,15 @@ pub struct Totals {
     pub invocations: u64,
 }
 
+fn default_schema_version() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
     pub scanned_at: String,
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub platform: String,
     pub scan_duration_ms: u64,
     pub sources: HashMap<String, ProviderResult>,
