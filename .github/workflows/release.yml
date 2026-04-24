@@ -110,10 +110,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel — pinned to macos-13 (the last Intel-native runner).
-          # macos-latest is now arm64, which would force cross-compile.
+          # macOS Intel — cross-compiled from the macos-14 (Apple Silicon)
+          # runner. GitHub's hosted macos-13 Intel runners have severely
+          # degraded queue times for public repos since mid-2025 and
+          # routinely never get picked up; Xcode on Apple Silicon ships
+          # both SDKs so `cargo build --target x86_64-apple-darwin` from
+          # macos-14 produces a valid Intel binary without a native Intel
+          # runner. If GitHub restores Intel capacity, switch back.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
           # macOS Apple Silicon — macos-14 is arm64-native.
           - target: aarch64-apple-darwin
             os: macos-14
