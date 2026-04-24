@@ -18,8 +18,7 @@ impl Provider for OpenCodeProvider {
     }
 
     fn is_available(&self) -> bool {
-        !platform::opencode_data_dirs().is_empty()
-            || !platform::opencode_sqlite_paths().is_empty()
+        !platform::opencode_data_dirs().is_empty() || !platform::opencode_sqlite_paths().is_empty()
     }
 
     fn scan(&self) -> Result<ProviderResult, ScanError> {
@@ -72,7 +71,7 @@ impl Provider for OpenCodeProvider {
                 }
             }
 
-            // Message files: storage/message/**/*.json (flat tokscale-confirmed path)
+            // Message files: storage/message/**/*.json (flat layout, no project/ prefix)
             let msg_pattern = format!("{}/storage/message/**/*.json", root.display());
             if let Ok(paths) = glob::glob(&msg_pattern) {
                 for path in paths.filter_map(|p| p.ok()) {
@@ -91,9 +90,7 @@ impl Provider for OpenCodeProvider {
         }
 
         if session_ids.is_empty() && models.is_empty() && assistant_ts.is_empty() {
-            return Err(ScanError::NotFound(
-                "No OpenCode session data found".into(),
-            ));
+            return Err(ScanError::NotFound("No OpenCode session data found".into()));
         }
 
         // Hours from per-session timestamps (30-min gap threshold)
@@ -280,10 +277,7 @@ fn scan_message_file(
         {
             let secs = ms_to_secs(ts);
             session_ids.insert(session_id.clone());
-            session_timestamps
-                .entry(session_id)
-                .or_default()
-                .push(secs);
+            session_timestamps.entry(session_id).or_default().push(secs);
             *first_seen = Some(first_seen.map_or(secs, |fs| fs.min(secs)));
             *last_seen = Some(last_seen.map_or(secs, |ls| ls.max(secs)));
         }
@@ -343,10 +337,11 @@ fn process_assistant_msg(
         .unwrap_or("unknown")
         .to_string();
 
-    let t = match v
-        .get("tokens")
-        .or_else(|| v.get("metadata").and_then(|m| m.get("assistant")).and_then(|a| a.get("tokens")))
-    {
+    let t = match v.get("tokens").or_else(|| {
+        v.get("metadata")
+            .and_then(|m| m.get("assistant"))
+            .and_then(|a| a.get("tokens"))
+    }) {
         Some(t) => t,
         None => return,
     };
@@ -383,13 +378,15 @@ fn process_assistant_msg(
     entry.tokens.compute_total();
 
     if let Some(ts) = msg_ts {
-        assistant_ts.push((ts, input.saturating_add(output).saturating_add(reasoning), session_id.to_string()));
+        assistant_ts.push((
+            ts,
+            input.saturating_add(output).saturating_add(reasoning),
+            session_id.to_string(),
+        ));
     }
 }
 
-pub(crate) fn build_daily_buckets(
-    rows: &[(i64, u64, String)],
-) -> HashMap<String, DailyBucket> {
+pub(crate) fn build_daily_buckets(rows: &[(i64, u64, String)]) -> HashMap<String, DailyBucket> {
     let mut buckets: HashMap<String, DailyBucket> = HashMap::new();
     let mut day_sessions: HashMap<String, HashSet<String>> = HashMap::new();
     for (ts, tokens, session_id) in rows {
@@ -412,5 +409,9 @@ pub(crate) fn build_daily_buckets(
 
 pub(crate) fn ms_to_secs(ms: i64) -> i64 {
     // OpenCode stores ms; older entries may already be seconds (< ~10^12).
-    if ms > 10_000_000_000 { ms / 1000 } else { ms }
+    if ms > 10_000_000_000 {
+        ms / 1000
+    } else {
+        ms
+    }
 }

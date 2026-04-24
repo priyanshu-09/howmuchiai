@@ -1,7 +1,7 @@
 use crate::platform;
-use crate::providers::Provider;
 use crate::providers::amp::accumulate_model;
 use crate::providers::opencode::build_daily_buckets;
+use crate::providers::Provider;
 use crate::time_util;
 use crate::types::{ModelUsage, ProviderResult, ScanError, TokenUsage};
 use std::collections::{HashMap, HashSet};
@@ -72,7 +72,9 @@ impl Provider for OpenClawProvider {
         }
 
         if session_ids.is_empty() && models.is_empty() {
-            return Err(ScanError::NotFound("No OpenClaw transcript data found".into()));
+            return Err(ScanError::NotFound(
+                "No OpenClaw transcript data found".into(),
+            ));
         }
 
         let mut total_hours = 0.0_f64;
@@ -110,11 +112,10 @@ fn read_sessions_index(idx_path: &Path, root: &Path) -> Option<Vec<PathBuf>> {
     let content = std::fs::read_to_string(idx_path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    let entries = v.as_array().cloned().or_else(|| {
-        v.get("sessions")
-            .and_then(|s| s.as_array())
-            .cloned()
-    })?;
+    let entries = v
+        .as_array()
+        .cloned()
+        .or_else(|| v.get("sessions").and_then(|s| s.as_array()).cloned())?;
 
     let mut out = Vec::new();
     for entry in entries {
@@ -271,11 +272,7 @@ fn scan_transcript(
                         .push(ts);
                     *first_seen = Some(first_seen.map_or(ts, |fs| fs.min(ts)));
                     *last_seen = Some(last_seen.map_or(ts, |ls| ls.max(ts)));
-                    assistant_rows.push((
-                        ts,
-                        input.saturating_add(output),
-                        session_id.clone(),
-                    ));
+                    assistant_rows.push((ts, input.saturating_add(output), session_id.clone()));
                 }
             }
             _ => {}

@@ -1,7 +1,7 @@
 use crate::platform;
-use crate::providers::Provider;
 use crate::providers::amp::accumulate_model;
 use crate::providers::opencode::build_daily_buckets;
+use crate::providers::Provider;
 use crate::time_util;
 use crate::types::{ModelUsage, ProviderResult, ScanError, TokenUsage};
 use std::collections::{HashMap, HashSet};
@@ -164,10 +164,7 @@ fn scan_wire_jsonl(
             }
         }
 
-        let input = tu
-            .get("input_other")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(0);
+        let input = tu.get("input_other").and_then(|x| x.as_u64()).unwrap_or(0);
         let output = tu.get("output").and_then(|x| x.as_u64()).unwrap_or(0);
         let cache_read = tu
             .get("input_cache_read")
@@ -190,7 +187,15 @@ fn scan_wire_jsonl(
             .or(mtime_fallback);
 
         session_ids.insert(session_id.clone());
-        accumulate_model(models, config_model, input, output, 0, cache_read, cache_write);
+        accumulate_model(
+            models,
+            config_model,
+            input,
+            output,
+            0,
+            cache_read,
+            cache_write,
+        );
 
         if let Some(ts) = ts {
             session_timestamps

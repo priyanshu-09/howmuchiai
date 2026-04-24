@@ -1,7 +1,7 @@
 use crate::platform;
-use crate::providers::Provider;
 use crate::providers::amp::accumulate_model;
 use crate::providers::opencode::build_daily_buckets;
+use crate::providers::Provider;
 use crate::time_util;
 use crate::types::{ModelUsage, ProviderResult, ScanError, TokenUsage};
 use std::collections::{HashMap, HashSet};
@@ -57,7 +57,9 @@ impl Provider for QwenProvider {
         }
 
         if session_ids.is_empty() && models.is_empty() {
-            return Err(ScanError::NotFound("No Qwen assistant messages found".into()));
+            return Err(ScanError::NotFound(
+                "No Qwen assistant messages found".into(),
+            ));
         }
 
         let mut total_hours = 0.0_f64;

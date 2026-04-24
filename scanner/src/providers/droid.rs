@@ -1,7 +1,7 @@
 use crate::platform;
-use crate::providers::Provider;
 use crate::providers::amp::accumulate_model;
 use crate::providers::opencode::build_daily_buckets;
+use crate::providers::Provider;
 use crate::time_util;
 use crate::types::{ModelUsage, ProviderResult, ScanError, TokenUsage};
 use std::collections::{HashMap, HashSet};
@@ -139,10 +139,7 @@ fn scan_session(
         return;
     }
 
-    let raw_model = v
-        .get("model")
-        .and_then(|m| m.as_str())
-        .unwrap_or("unknown");
+    let raw_model = v.get("model").and_then(|m| m.as_str()).unwrap_or("unknown");
     let model = normalize_model_name(raw_model);
 
     let ts = v

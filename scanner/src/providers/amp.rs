@@ -1,6 +1,6 @@
 use crate::platform;
-use crate::providers::Provider;
 use crate::providers::opencode::{build_daily_buckets, ms_to_secs};
+use crate::providers::Provider;
 use crate::time_util;
 use crate::types::{ModelUsage, ProviderResult, ScanError, TokenUsage};
 use std::collections::{HashMap, HashSet};
@@ -36,7 +36,9 @@ impl Provider for AmpProvider {
 
         for root in &roots {
             let pattern = format!("{}/*.json", root.display());
-            let Ok(paths) = glob::glob(&pattern) else { continue };
+            let Ok(paths) = glob::glob(&pattern) else {
+                continue;
+            };
             for path in paths.filter_map(|p| p.ok()) {
                 scan_thread(
                     &path,
@@ -116,10 +118,7 @@ fn scan_thread(
         .unwrap_or_else(|| "unknown".into());
     session_ids.insert(session_id.clone());
 
-    let thread_created = v
-        .get("created")
-        .and_then(|x| x.as_i64())
-        .map(ms_to_secs);
+    let thread_created = v.get("created").and_then(|x| x.as_i64()).map(ms_to_secs);
 
     // Dedup keys across ledger + messages: prefer messageId, fall back to (model, tokens) tuple
     let mut seen_msg_ids: HashSet<String> = HashSet::new();
@@ -165,27 +164,16 @@ fn scan_thread(
                 continue;
             }
 
-            let fp = format!("{}|{}|{}|{}|{}", model, input, output, cache_read, cache_write);
+            let fp = format!(
+                "{}|{}|{}|{}|{}",
+                model, input, output, cache_read, cache_write
+            );
             if !seen_fingerprint.insert(fp) {
                 continue;
             }
 
-            accumulate_model(
-                models,
-                &model,
-                input,
-                output,
-                0,
-                cache_read,
-                cache_write,
-            );
-            push_ts(
-                session_timestamps,
-                &session_id,
-                ts,
-                first_seen,
-                last_seen,
-            );
+            accumulate_model(models, &model, input, output, 0, cache_read, cache_write);
+            push_ts(session_timestamps, &session_id, ts, first_seen, last_seen);
             assistant_rows.push((ts, input.saturating_add(output), session_id.clone()));
         }
     }
@@ -246,16 +234,17 @@ fn scan_thread(
                 continue;
             }
 
-            let fp = format!("{}|{}|{}|{}|{}", model, input, output, cache_read, cache_write);
+            let fp = format!(
+                "{}|{}|{}|{}|{}",
+                model, input, output, cache_read, cache_write
+            );
             if !seen_fingerprint.insert(fp) {
                 continue;
             }
 
             accumulate_model(models, &model, input, output, 0, cache_read, cache_write);
 
-            let ts = thread_created
-                .or_else(|| file_mtime(path))
-                .unwrap_or(0);
+            let ts = thread_created.or_else(|| file_mtime(path)).unwrap_or(0);
             push_ts(session_timestamps, &session_id, ts, first_seen, last_seen);
             assistant_rows.push((ts, input.saturating_add(output), session_id.clone()));
         }

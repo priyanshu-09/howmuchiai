@@ -332,26 +332,42 @@ pub fn amp_threads_dirs() -> Vec<PathBuf> {
 
 pub fn droid_sessions_dir() -> Option<PathBuf> {
     let p = home_dir().join(".factory/sessions");
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 // --- Qwen CLI ---
 
 pub fn qwen_projects_dir() -> Option<PathBuf> {
     let p = home_dir().join(".qwen/projects");
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 // --- Kimi CLI ---
 
 pub fn kimi_sessions_dir() -> Option<PathBuf> {
     let p = home_dir().join(".kimi/sessions");
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 pub fn kimi_config_path() -> Option<PathBuf> {
     let p = home_dir().join(".kimi/config.json");
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 // --- OpenClaw (+ legacy Clawdbot/Moltbot/Moldbot) ---
