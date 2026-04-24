@@ -1,7 +1,26 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use clap::Parser;
+use howmuchiai::types::ScanResult;
 
 const WEBSITE_BASE: &str = "https://howmuchiai.xyz";
+
+/// Count providers whose result metadata is `{ "skipped": "tcc-denied" }`.
+/// macOS Full Disk Access (TCC) gates `~/Library/Safari/*` behind a Finder grant
+/// the CLI cannot self-issue, so a denied provider returns Ok(empty) with
+/// this sentinel rather than aborting the whole scan.
+fn count_tcc_denied(result: &ScanResult) -> usize {
+    result
+        .sources
+        .values()
+        .filter(|p| {
+            p.metadata
+                .as_ref()
+                .and_then(|m| m.get("skipped"))
+                .and_then(|v| v.as_str())
+                == Some("tcc-denied")
+        })
+        .count()
+}
 
 #[derive(Parser)]
 #[command(name = "howmuchiai", about = "Scan your machine for AI tool usage")]
@@ -72,6 +91,23 @@ fn main() {
             // Auto-open browser
             if !cli.no_open {
                 let _ = open_browser(&url);
+            }
+
+            // TCC (Full Disk Access) hint — fires when ≥1 provider returned
+            // skipped=tcc-denied (e.g. Safari on a terminal without FDA).
+            let skipped = count_tcc_denied(&result);
+            if skipped > 0 {
+                eprintln!();
+                eprintln!(
+                    "\u{26a0}  {} provider(s) skipped due to macOS Full Disk Access.",
+                    skipped
+                );
+                eprintln!(
+                    "    Grant access: System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access"
+                );
+                eprintln!(
+                    "    \u{2192} add your terminal app (Terminal / iTerm / Ghostty / etc.)."
+                );
             }
         }
     }
