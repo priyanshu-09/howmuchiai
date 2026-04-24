@@ -1,6 +1,7 @@
 use crate::platform;
 use crate::providers::Provider;
-use crate::types::{ProviderResult, ScanError};
+use crate::time_util;
+use crate::types::{DailyBucket, ProviderResult, ScanError};
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -77,6 +78,26 @@ impl Provider for ShellHistoryProvider {
         result.invocations = Some(total_invocations);
         result.first_seen = first_seen;
         result.last_seen = last_seen;
+
+        // Build daily buckets: each invocation is instantaneous (hours=0.0).
+        if !all_timestamps.is_empty() {
+            let by_day = time_util::group_by_day(&all_timestamps);
+            let mut buckets: HashMap<String, DailyBucket> = HashMap::new();
+            for (day, ts_list) in by_day {
+                buckets.insert(
+                    day,
+                    DailyBucket {
+                        hours: 0.0,
+                        tokens: 0,
+                        sessions: 0,
+                        invocations: Some(ts_list.len() as u64),
+                    },
+                );
+            }
+            if !buckets.is_empty() {
+                result.daily_buckets = Some(buckets);
+            }
+        }
 
         // Store per-tool breakdown in metadata
         if !tool_counts.is_empty() {

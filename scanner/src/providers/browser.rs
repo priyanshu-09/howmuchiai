@@ -2,9 +2,37 @@ use crate::platform;
 use crate::providers::Provider;
 use crate::sqlite_util::SafeSqlite;
 use crate::time_util;
-use crate::types::{ProviderResult, ScanError};
+use crate::types::{DailyBucket, ProviderResult, ScanError};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+/// Build daily buckets from a sorted list of visit timestamps.
+/// Per-day hours uses the same active-hours logic as the total (30-minute gap).
+fn build_daily_buckets(sorted_timestamps: &[i64]) -> Option<HashMap<String, DailyBucket>> {
+    if sorted_timestamps.is_empty() {
+        return None;
+    }
+    let by_day = time_util::group_by_day(sorted_timestamps);
+    let mut buckets: HashMap<String, DailyBucket> = HashMap::new();
+    for (day, mut ts_list) in by_day {
+        ts_list.sort_unstable();
+        let hours = time_util::active_hours_from_timestamps(&ts_list, 1800);
+        buckets.insert(
+            day,
+            DailyBucket {
+                hours,
+                tokens: 0,
+                sessions: 0,
+                invocations: None,
+            },
+        );
+    }
+    if buckets.is_empty() {
+        None
+    } else {
+        Some(buckets)
+    }
+}
 
 const AI_DOMAINS: &[(&str, &str)] = &[
     ("claude.ai", "Claude.ai"),
@@ -166,6 +194,7 @@ fn scan_chromium_history(
     result.visits = Some(total_visits);
     result.first_seen = first_seen;
     result.last_seen = last_seen;
+    result.daily_buckets = build_daily_buckets(&all_timestamps);
 
     let mut metadata = HashMap::new();
     metadata.insert(
@@ -263,6 +292,7 @@ fn scan_safari_history(path: &std::path::Path) -> Result<ProviderResult, ScanErr
     result.visits = Some(total_visits);
     result.first_seen = first_seen;
     result.last_seen = last_seen;
+    result.daily_buckets = build_daily_buckets(&all_timestamps);
 
     let mut metadata = HashMap::new();
     metadata.insert(
@@ -378,6 +408,7 @@ fn scan_firefox_history(paths: &[PathBuf]) -> Result<ProviderResult, ScanError> 
     result.visits = Some(total_visits);
     result.first_seen = first_seen;
     result.last_seen = last_seen;
+    result.daily_buckets = build_daily_buckets(&all_timestamps);
 
     let mut metadata = HashMap::new();
     metadata.insert(

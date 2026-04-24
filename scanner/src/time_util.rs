@@ -92,3 +92,15 @@ pub fn iso8601_to_unix(ts: &str) -> Option<i64> {
                 .map(|dt| dt.and_utc().timestamp())
         })
 }
+
+/// Group unix-second timestamps by UTC ISO date ("YYYY-MM-DD").
+pub fn group_by_day(timestamps: &[i64]) -> std::collections::HashMap<String, Vec<i64>> {
+    let mut out: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+    for &ts in timestamps {
+        if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
+            let day = dt.format("%Y-%m-%d").to_string();
+            out.entry(day).or_default().push(ts);
+        }
+    }
+    out
+}

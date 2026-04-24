@@ -68,6 +68,13 @@ howmuchiai --format json
 3. Browser opens the URL — the website decodes the hash client-side and renders your card
 4. Nothing touches any server until you explicitly sign in
 
+## Schema
+
+The JSON output conforms to a versioned schema:
+
+- `schema_version` (u32) — top-level field, currently `2`. Consumers should check this to handle breaking changes across scanner versions. If absent on older payloads, treat as `1`.
+- `sources[<provider>].daily_buckets` — optional `{ "YYYY-MM-DD": { hours, tokens, sessions, invocations? } }` map. Populated today for `shell_history` (per-day invocation counts) and browser providers (per-day active hours). Other providers may populate it later; decoders MUST handle its absence gracefully.
+
 ## Privacy
 
 - **Zero network calls.** The binary has no HTTP dependencies. It cannot phone home.

@@ -63,6 +63,7 @@ pub fn run_scan() -> ScanResult {
 
     ScanResult {
         scanned_at: chrono::Utc::now().to_rfc3339(),
+        schema_version: 2,
         platform: platform::detect_platform().to_string(),
         scan_duration_ms: elapsed.as_millis() as u64,
         sources,
