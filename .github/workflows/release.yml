@@ -1,102 +1,235 @@
+# Release workflow for howmuchiai.
+#
+# Auto-cuts a GitHub Release on every push to `main`, building platform
+# binaries and attaching them as tar.gz assets plus a SHA256SUMS.txt so the
+# public `curl | sh` installer (install.sh) can fetch + verify them.
+#
+# Binary naming contract (see install.sh):
+#   <owner>/<repo>/releases/download/<tag>/howmuchiai-<rust-target-triple>.tar.gz
+# Archive must contain a single flat file named `howmuchiai`.
+#
+# Public-repo supply-chain notes:
+#   - Every third-party action is pinned by full 40-char commit SHA with a
+#     version comment; official actions/* use tags. Never use moving refs
+#     like @main or @v2 on a public repo — tag-hijack risk.
+#   - Only `contents: write` permission is granted (needed to create the tag
+#     + release). No other scopes.
+#   - Only `secrets.GITHUB_TOKEN` is referenced; no PATs.
+#   - All `run:` scripts that reference GitHub-controlled values pass them
+#     through `env:` variables (never raw `${{ ... }}` interpolation) to
+#     eliminate command-injection surface.
+
 name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    # Docs-only pushes should not cut a new binary release.
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'CONTRIBUTING.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+  # Allow manually triggering from the Actions tab for ad-hoc rebuilds.
+  workflow_dispatch:
 
+# Minimum scope required to create the tag + release. Nothing else.
 permissions:
   contents: write
 
+# Serialize releases, but never cancel an in-flight one — cancelling mid-upload
+# can leave a half-populated release with partial assets, which would silently
+# break the installer for end users.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
+  # Resolve the release tag + base version ONCE so every matrix job and the
+  # final release step agree on the tag name. Extracted from scanner/Cargo.toml
+  # so bumping `version = "0.4.0"` there automatically rolls the release line
+  # forward — no workflow edits required.
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.2.2
+        with:
+          # Shallow checkout is fine — we only need Cargo.toml + git tag list.
+          fetch-depth: 1
+
+      - name: Extract version from scanner/Cargo.toml and build tag
+        id: meta
+        env:
+          # github.run_number is a GitHub-controlled integer; we still funnel
+          # it through an env var for uniformity with the injection-safe
+          # pattern used elsewhere.
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          # Grab the first `version = "..."` under [package] in scanner/Cargo.toml.
+          VERSION="$(grep -m1 '^version *= *"' scanner/Cargo.toml | cut -d'"' -f2)"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::Failed to parse version from scanner/Cargo.toml"
+            exit 1
+          fi
+          # run_number is monotonically increasing per workflow, so the tag is
+          # guaranteed unique per run and never collides with manual semver
+          # tags like v0.3.0.
+          TAG="v${VERSION}-r${RUN_NUMBER}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=${VERSION} tag=${TAG}"
+
+      - name: Fail if tag already exists on origin
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Defensive: run_number collisions shouldn't happen, but if somebody
+          # force-pushes or re-runs an old workflow, bail rather than
+          # overwriting an existing release.
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "::error::Tag ${TAG} already exists on origin — refusing to overwrite"
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
+    needs: prepare
+    # Don't cancel other matrix legs when one platform fails — we want to see
+    # every broken platform in a single run, not play whack-a-mole.
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            binary: howmuchiai
+          # macOS Intel — pinned to macos-13 (the last Intel-native runner).
+          # macos-latest is now arm64, which would force cross-compile.
           - target: x86_64-apple-darwin
-            os: macos-latest
-            binary: howmuchiai
+            os: macos-13
+          # macOS Apple Silicon — macos-14 is arm64-native.
+          - target: aarch64-apple-darwin
+            os: macos-14
+          # Linux x86_64 — native build on the default Ubuntu runner.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            binary: howmuchiai
+          # Linux aarch64 — cross-compiled from x86_64 Ubuntu using
+          # gcc-aarch64-linux-gnu as the linker (see step below). install.sh
+          # fetches this triple for ARM Linux hosts (e.g. Raspberry Pi, AWS
+          # Graviton), so it's non-optional.
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            binary: howmuchiai
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            binary: howmuchiai.exe
-
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.2.2
 
-      - name: Install cross-compilation tools
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@1780873c34f7f2a06b8eece84559e3ed14c5dd7c # v1.12.0
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          # Disable the action's built-in cache so we can use rust-cache
+          # below, which keys cleanly per-target.
+          cache: false
+
+      - name: Cache cargo registry and target/
+        uses: swatinem/rust-cache@f13886b937689c021905d5f90c1d843efe0fbb17 # v2.8.1
+        with:
+          # Key by target so Linux x86_64 and Linux aarch64 don't evict each
+          # other despite sharing the same runner OS.
+          key: ${{ matrix.target }}
+          # Save the cache even if the build fails so the next run still gets
+          # the benefit of downloaded crates.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install aarch64 Linux cross-compiler
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
         env:
+          # Only used by the aarch64-linux leg; harmless as a no-op elsewhere.
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "${TARGET}"
 
-      - name: Package binary (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Package binary as tar.gz (install.sh contract)
         env:
           TARGET: ${{ matrix.target }}
-          BINARY: ${{ matrix.binary }}
         run: |
+          set -euo pipefail
+          # Archive layout required by install.sh:
+          #   howmuchiai-<target>.tar.gz
+          #     └── howmuchiai        <-- flat, no subdirectory
+          # Binary is already stripped via Cargo.toml [profile.release] strip=true.
           mkdir -p dist
-          cp "target/${TARGET}/release/${BINARY}" dist/
-          cd dist
-          tar czf "howmuchiai-${TARGET}.tar.gz" "${BINARY}"
+          cp "target/${TARGET}/release/howmuchiai" "dist/howmuchiai"
+          tar -C dist -czf "dist/howmuchiai-${TARGET}.tar.gz" howmuchiai
+          rm "dist/howmuchiai"
+          ls -lah dist/
 
-      - name: Package binary (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        env:
-          TARGET: ${{ matrix.target }}
-          BINARY: ${{ matrix.binary }}
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/$env:TARGET/release/$env:BINARY" -Destination dist/
-          Compress-Archive -Path "dist/$env:BINARY" -DestinationPath "dist/howmuchiai-$env:TARGET.zip"
-
-      - name: Upload artifact (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Upload platform artifact
         uses: actions/upload-artifact@v4
         with:
           name: howmuchiai-${{ matrix.target }}
           path: dist/howmuchiai-${{ matrix.target }}.tar.gz
-
-      - name: Upload artifact (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: howmuchiai-${{ matrix.target }}
-          path: dist/howmuchiai-${{ matrix.target }}.zip
+          if-no-files-found: error
+          retention-days: 7
 
   release:
-    name: Create Release
-    needs: build
+    name: Publish GitHub Release
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
+      - name: Flatten artifacts and compute checksums
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Each matrix leg uploaded a single tar.gz into its own subdir;
+          # flatten them into one dir for the release asset list.
+          find artifacts -type f -name 'howmuchiai-*.tar.gz' -exec cp {} release/ \;
+          cd release
+          ls -lah
+          # SHA256SUMS.txt lists every asset + hash in the canonical
+          # `<sha256>  <filename>` shasum format so install.sh (or a user) can
+          # verify downloads with `shasum -a 256 -c SHA256SUMS.txt`.
+          shasum -a 256 howmuchiai-*.tar.gz | tee SHA256SUMS.txt
+          echo "Release assets:"
+          ls -1
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        env:
+          # GITHUB_TOKEN is the only secret this workflow touches. Scoped to
+          # this step; not exported to any shell step above.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
+          # Auto-generate changelog from commits since the previous release —
+          # no custom changelog code to maintain.
           generate_release_notes: true
+          # These are real public releases end users pull via `curl | sh`.
+          prerelease: false
+          # install.sh hits /releases/latest — this release MUST be marked
+          # latest or the installer will download a stale binary.
+          make_latest: 'true'
+          fail_on_unmatched_files: true
+          files: |
+            release/howmuchiai-*.tar.gz
+            release/SHA256SUMS.txt

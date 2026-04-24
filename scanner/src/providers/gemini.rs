@@ -40,6 +40,7 @@ impl Provider for GeminiProvider {
         let mut sessions_set: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut total_messages: u64 = 0;
         let mut all_timestamps: Vec<i64> = Vec::new();
+        let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
 
         for log_file in &log_files {
             let content = match std::fs::read_to_string(log_file) {
@@ -60,28 +61,36 @@ impl Provider for GeminiProvider {
             };
 
             for entry in &entries {
-                if let Some(session_id) = entry.get("sessionId").and_then(|v| v.as_str()) {
-                    sessions_set.insert(session_id.to_string());
+                let session_id = entry
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                if let Some(ref sid) = session_id {
+                    sessions_set.insert(sid.clone());
                 }
 
                 total_messages += 1;
 
                 // Parse timestamp -- could be ISO 8601 string or numeric
-                if let Some(ts) = entry.get("timestamp") {
+                let parsed_ts: Option<i64> = entry.get("timestamp").and_then(|ts| {
                     if let Some(ts_str) = ts.as_str() {
-                        if let Some(unix) = time_util::iso8601_to_unix(ts_str) {
-                            all_timestamps.push(unix);
-                        }
+                        time_util::iso8601_to_unix(ts_str)
                     } else if let Some(ts_num) = ts.as_i64() {
                         // Assume milliseconds if value is large enough
                         if ts_num > 1_000_000_000_000 {
-                            all_timestamps.push(ts_num / 1000);
+                            Some(ts_num / 1000)
                         } else {
-                            all_timestamps.push(ts_num);
+                            Some(ts_num)
                         }
-                    } else if let Some(ts_f) = ts.as_f64() {
-                        all_timestamps.push(ts_f as i64);
+                    } else {
+                        ts.as_f64().map(|v| v as i64)
                     }
+                });
+                if let Some(ts) = parsed_ts {
+                    all_timestamps.push(ts);
+                    // Gemini logs don't record per-message token counts; use the sessionId
+                    // when present so daily sessions counts correctly.
+                    events.push((ts, 0, session_id.clone()));
                 }
             }
         }
@@ -105,6 +114,11 @@ impl Provider for GeminiProvider {
         result.first_seen = first_seen;
         result.last_seen = last_seen;
         result.metadata = Some(metadata);
+
+        let daily_buckets = time_util::build_daily_buckets(&events);
+        if !daily_buckets.is_empty() {
+            result.daily_buckets = Some(daily_buckets);
+        }
 
         Ok(result)
     }

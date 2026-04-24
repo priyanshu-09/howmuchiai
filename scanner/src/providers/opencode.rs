@@ -386,25 +386,18 @@ fn process_assistant_msg(
     }
 }
 
+/// Thin wrapper around `time_util::build_daily_buckets` that accepts the
+/// opencode-family tuple shape `(ts, tokens, session_id: String)` and converts
+/// each session_id into `Some(..)` for the shared helper.
+///
+/// Kept for backwards compatibility with amp / droid / kimi / qwen / openclaw.
+/// New callers should use `time_util::build_daily_buckets` directly.
 pub(crate) fn build_daily_buckets(rows: &[(i64, u64, String)]) -> HashMap<String, DailyBucket> {
-    let mut buckets: HashMap<String, DailyBucket> = HashMap::new();
-    let mut day_sessions: HashMap<String, HashSet<String>> = HashMap::new();
-    for (ts, tokens, session_id) in rows {
-        let Some(dt) = chrono::DateTime::from_timestamp(*ts, 0) else {
-            continue;
-        };
-        let day = dt.format("%Y-%m-%d").to_string();
-        let b = buckets.entry(day.clone()).or_default();
-        b.tokens = b.tokens.saturating_add(*tokens);
-        if day_sessions
-            .entry(day)
-            .or_default()
-            .insert(session_id.clone())
-        {
-            b.sessions = b.sessions.saturating_add(1);
-        }
-    }
-    buckets
+    let events: Vec<(i64, u64, Option<String>)> = rows
+        .iter()
+        .map(|(ts, tokens, sid)| (*ts, *tokens, Some(sid.clone())))
+        .collect();
+    time_util::build_daily_buckets(&events)
 }
 
 pub(crate) fn ms_to_secs(ms: i64) -> i64 {
