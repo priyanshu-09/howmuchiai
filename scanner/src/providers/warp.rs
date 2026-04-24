@@ -69,15 +69,14 @@ impl Provider for WarpProvider {
             }
 
             // Parse timestamp: "2024-01-15 14:30:00.123"
-            let ts_epoch = chrono::NaiveDateTime::parse_from_str(
-                &row.start_ts,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )
-            .ok()
-            .or_else(|| {
-                chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S").ok()
-            })
-            .map(|dt| dt.and_utc().timestamp());
+            let ts_epoch =
+                chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S%.f")
+                    .ok()
+                    .or_else(|| {
+                        chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S")
+                            .ok()
+                    })
+                    .map(|dt| dt.and_utc().timestamp());
 
             if let Some(epoch) = ts_epoch {
                 timestamps.push(epoch);

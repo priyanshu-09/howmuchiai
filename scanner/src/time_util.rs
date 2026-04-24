@@ -154,10 +154,7 @@ pub fn build_daily_buckets(
         ts_list.sort_unstable();
         let hours = active_hours_from_timestamps(&ts_list, 1800);
         let tokens = day_tokens.get(&day).copied().unwrap_or(0);
-        let sessions = day_sessions
-            .get(&day)
-            .map(|s| s.len() as u64)
-            .unwrap_or(0);
+        let sessions = day_sessions.get(&day).map(|s| s.len() as u64).unwrap_or(0);
         buckets.insert(
             day,
             DailyBucket {
@@ -208,15 +205,15 @@ mod tests {
         let day2 = buckets.get("2024-01-16").expect("day 2 bucket");
         assert_eq!(day2.tokens, 10);
         assert_eq!(day2.sessions, 1);
-        assert!(day2.hours > 0.0, "single event still yields min-session hours");
+        assert!(
+            day2.hours > 0.0,
+            "single event still yields min-session hours"
+        );
     }
 
     #[test]
     fn build_daily_buckets_handles_none_session_id() {
-        let events = vec![
-            (DAY_EPOCH + 60, 0, None),
-            (DAY_EPOCH + 120, 0, None),
-        ];
+        let events = vec![(DAY_EPOCH + 60, 0, None), (DAY_EPOCH + 120, 0, None)];
         let buckets = build_daily_buckets(&events);
         let day = buckets.get("2024-01-15").expect("bucket exists");
         assert_eq!(day.sessions, 0, "None session ids must not be counted");
