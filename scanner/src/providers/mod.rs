@@ -1,6 +1,7 @@
 use crate::types::{ProviderResult, ScanError};
 
 pub mod aider;
+pub mod amp;
 pub mod browser;
 pub mod chatgpt_desktop;
 pub mod claude_code;
@@ -9,9 +10,14 @@ pub mod continue_ext;
 pub mod copilot;
 pub mod cursor;
 pub mod detection;
+pub mod droid;
 pub mod gemini;
 pub mod jetbrains;
+pub mod kimi;
 pub mod ollama;
+pub mod openclaw;
+pub mod opencode;
+pub mod qwen;
 pub mod shell_history;
 pub mod warp;
 
@@ -52,6 +58,12 @@ pub fn all_providers() -> Vec<Box<dyn Provider>> {
         Box::new(aider::AiderProvider),
         Box::new(continue_ext::ContinueProvider),
         Box::new(ollama::OllamaProvider),
+        Box::new(opencode::OpenCodeProvider),
+        Box::new(amp::AmpProvider),
+        Box::new(droid::DroidProvider),
+        Box::new(qwen::QwenProvider),
+        Box::new(kimi::KimiProvider),
+        Box::new(openclaw::OpenClawProvider),
         Box::new(jetbrains::JetBrainsProvider),
     ]
 }

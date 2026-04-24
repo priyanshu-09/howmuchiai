@@ -26,6 +26,12 @@ cargo build --release
 | **Claude Desktop** | Local agent mode sessions (same JSONL format) |
 | **ChatGPT Desktop** | Conversation count |
 | **Codex (OpenAI)** | Token counts, sessions, hours, models used |
+| **OpenCode** | SQLite (`opencode.db`, v1.2+) + legacy JSON; tokens, sessions, hours, per-model, per-day buckets |
+| **Amp (AmpCode)** | Thread JSON + usage ledger; tokens, sessions, hours, per-model, per-day buckets |
+| **Droid (Factory)** | Session JSON; tokens (input/output/cache/thinking), sessions, hours, normalized model names |
+| **Qwen CLI** | JSONL chats; prompt/candidates/thoughts/cache tokens, sessions, hours, per-model |
+| **Kimi CLI** | `wire.jsonl` StatusUpdate; tokens, sessions, hours, model from `config.json` |
+| **OpenClaw** | Agent transcripts + legacy Clawdbot/Moltbot/Moldbot; tokens, sessions, hours, per-model |
 | **Browser History** | Hours on AI web apps (see list below) |
 | **Cursor IDE** | Composer sessions, daily AI-generated lines |
 | **Shell History** | CLI invocation counts (claude, codex, aider, ollama, etc.) |

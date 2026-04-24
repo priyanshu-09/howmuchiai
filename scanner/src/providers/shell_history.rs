@@ -10,6 +10,12 @@ use std::io::BufRead;
 const AI_PATTERNS: &[(&str, &str)] = &[
     ("claude", "Claude Code"),
     ("codex", "Codex CLI"),
+    ("opencode", "OpenCode"),
+    ("devin", "Devin CLI"),
+    ("amp", "Amp"),
+    ("droid", "Droid (Factory)"),
+    ("qwen", "Qwen CLI"),
+    ("kimi", "Kimi CLI"),
     ("cursor", "Cursor"),
     ("copilot", "Copilot"),
     ("aider", "Aider"),
