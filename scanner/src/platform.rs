@@ -276,6 +276,111 @@ pub fn continue_dir() -> Option<PathBuf> {
     }
 }
 
+// --- OpenCode (sst/opencode) ---
+
+/// OpenCode stores session data under its XDG data dir.
+/// On macOS/Linux: `~/.local/share/opencode/` (XDG default, not Apple's
+/// Library path — sst/opencode is a cross-platform TUI following XDG).
+/// Also checks legacy `~/.opencode/` and config dir as fallbacks.
+pub fn opencode_data_dirs() -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME") {
+        candidates.push(PathBuf::from(xdg_data).join("opencode"));
+    }
+    candidates.push(home.join(".local/share/opencode"));
+    candidates.push(home.join(".opencode"));
+    if let Some(xdg_config) = std::env::var_os("XDG_CONFIG_HOME") {
+        candidates.push(PathBuf::from(xdg_config).join("opencode"));
+    }
+    candidates.push(home.join(".config/opencode"));
+
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|p| p.exists() && seen.insert(p.clone()))
+        .collect()
+}
+
+/// All candidate OpenCode SQLite paths (v1.2+). Returns only existing ones.
+pub fn opencode_sqlite_paths() -> Vec<PathBuf> {
+    opencode_data_dirs()
+        .into_iter()
+        .map(|d| d.join("opencode.db"))
+        .filter(|p| p.exists())
+        .collect()
+}
+
+// --- Amp (AmpCode) ---
+
+pub fn amp_threads_dirs() -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME") {
+        candidates.push(PathBuf::from(xdg_data).join("amp/threads"));
+    }
+    candidates.push(home.join(".local/share/amp/threads"));
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|p| p.exists() && seen.insert(p.clone()))
+        .collect()
+}
+
+// --- Droid (Factory.ai) ---
+
+pub fn droid_sessions_dir() -> Option<PathBuf> {
+    let p = home_dir().join(".factory/sessions");
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+// --- Qwen CLI ---
+
+pub fn qwen_projects_dir() -> Option<PathBuf> {
+    let p = home_dir().join(".qwen/projects");
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+// --- Kimi CLI ---
+
+pub fn kimi_sessions_dir() -> Option<PathBuf> {
+    let p = home_dir().join(".kimi/sessions");
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+pub fn kimi_config_path() -> Option<PathBuf> {
+    let p = home_dir().join(".kimi/config.json");
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+// --- OpenClaw (+ legacy Clawdbot/Moltbot/Moldbot) ---
+
+pub fn openclaw_dirs() -> Vec<PathBuf> {
+    let home = home_dir();
+    [".openclaw", ".clawdbot", ".moltbot", ".moldbot"]
+        .iter()
+        .map(|n| home.join(n))
+        .filter(|p| p.exists())
+        .collect()
+}
+
 // --- Ollama ---
 
 pub fn ollama_models_dir() -> Option<PathBuf> {
