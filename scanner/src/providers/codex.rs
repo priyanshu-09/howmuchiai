@@ -36,18 +36,19 @@ impl Provider for CodexProvider {
         let mut first_seen: Option<i64> = None;
         let mut last_seen: Option<i64> = None;
         let mut model_tokens_from_db: HashMap<String, u64> = HashMap::new();
+        let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
 
         let rows = stmt.query_map([], |row| {
-            let _id: String = row.get(0)?;
+            let id: String = row.get(0)?;
             let created_at: i64 = row.get(1)?;
             let updated_at: i64 = row.get(2)?;
             let model: Option<String> = row.get(3)?;
             let tokens_used: Option<i64> = row.get(4)?;
-            Ok((created_at, updated_at, model, tokens_used))
+            Ok((id, created_at, updated_at, model, tokens_used))
         })?;
 
         for row in rows {
-            let (created_at, updated_at, model, tokens_used) = match row {
+            let (id, created_at, updated_at, model, tokens_used) = match row {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -71,6 +72,14 @@ impl Provider for CodexProvider {
             // Hours: duration of each thread, capped at 24h
             let duration = (updated_at - created_at).clamp(0, 86400);
             total_hours += duration as f64 / 3600.0;
+
+            // Daily-bucket events: attribute tokens to the thread's created_at day,
+            // but also record updated_at so per-day `hours` reflects thread spans that
+            // cross midnight UTC. The thread `id` serves as the session key.
+            events.push((created_at, tok, Some(id.clone())));
+            if updated_at != created_at {
+                events.push((updated_at, 0, Some(id)));
+            }
         }
 
         // Also scan session JSONL files for per-model token breakdown
@@ -132,6 +141,11 @@ impl Provider for CodexProvider {
 
         if !models.is_empty() {
             result.models = Some(models);
+        }
+
+        let daily_buckets = time_util::build_daily_buckets(&events);
+        if !daily_buckets.is_empty() {
+            result.daily_buckets = Some(daily_buckets);
         }
 
         Ok(result)

@@ -31,6 +31,7 @@ impl Provider for CursorProvider {
         let mut first_seen: Option<i64> = None;
         let mut last_seen: Option<i64> = None;
         let mut accepted_lines: u64 = 0;
+        let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
 
         // Query composerData entries for session info
         let mut stmt = db
@@ -65,6 +66,9 @@ impl Provider for CursorProvider {
 
                 sessions += 1;
                 all_timestamps.push(created_at);
+                // Per-event tokens are not recorded by Cursor; emit 0 and no session id
+                // so each day shows accurate `hours` but tokens/sessions stay zero.
+                events.push((created_at, 0, None));
 
                 first_seen = Some(first_seen.map_or(created_at, |fs: i64| fs.min(created_at)));
                 last_seen = Some(last_seen.map_or(created_at, |ls: i64| ls.max(created_at)));
@@ -131,6 +135,11 @@ impl Provider for CursorProvider {
                 serde_json::Value::Number(serde_json::Number::from(accepted_lines)),
             );
             result.metadata = Some(metadata);
+        }
+
+        let daily_buckets = time_util::build_daily_buckets(&events);
+        if !daily_buckets.is_empty() {
+            result.daily_buckets = Some(daily_buckets);
         }
 
         Ok(result)

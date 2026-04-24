@@ -58,6 +58,7 @@ impl Provider for WarpProvider {
         let mut sessions_set: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut model_counts: HashMap<String, u64> = HashMap::new();
         let mut timestamps: Vec<i64> = Vec::new();
+        let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
         let total_invocations = rows.len() as u64;
 
         for row in &rows {
@@ -68,14 +69,21 @@ impl Provider for WarpProvider {
             }
 
             // Parse timestamp: "2024-01-15 14:30:00.123"
-            if let Ok(dt) =
-                chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S%.f")
-            {
-                timestamps.push(dt.and_utc().timestamp());
-            } else if let Ok(dt) =
-                chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S")
-            {
-                timestamps.push(dt.and_utc().timestamp());
+            let ts_epoch = chrono::NaiveDateTime::parse_from_str(
+                &row.start_ts,
+                "%Y-%m-%d %H:%M:%S%.f",
+            )
+            .ok()
+            .or_else(|| {
+                chrono::NaiveDateTime::parse_from_str(&row.start_ts, "%Y-%m-%d %H:%M:%S").ok()
+            })
+            .map(|dt| dt.and_utc().timestamp());
+
+            if let Some(epoch) = ts_epoch {
+                timestamps.push(epoch);
+                // Warp doesn't expose per-query token counts; attribute 0 tokens but
+                // keep conversation_id so daily sessions count distinct conversations.
+                events.push((epoch, 0, Some(row.conversation_id.clone())));
             }
         }
 
@@ -102,6 +110,11 @@ impl Provider for WarpProvider {
         result.first_seen = first_seen;
         result.last_seen = last_seen;
         result.metadata = Some(metadata);
+
+        let daily_buckets = crate::time_util::build_daily_buckets(&events);
+        if !daily_buckets.is_empty() {
+            result.daily_buckets = Some(daily_buckets);
+        }
 
         Ok(result)
     }

@@ -57,6 +57,7 @@ impl Provider for ClaudeCodeProvider {
         let mut non_subagent_session_ids: HashSet<String> = HashSet::new();
         let mut first_seen: Option<i64> = None;
         let mut last_seen: Option<i64> = None;
+        let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
 
         for path in &paths {
             let is_subagent = path.to_string_lossy().contains("/subagents/");
@@ -83,9 +84,12 @@ impl Provider for ClaudeCodeProvider {
                 };
 
                 // Extract timestamp from every line
+                let mut msg_ts: Option<i64> = None;
+                let mut msg_session_id: Option<String> = None;
                 if let Some(ts_str) = value.get("timestamp").and_then(|t| t.as_str()) {
                     if let Some(unix_ts) = time_util::iso8601_to_unix(ts_str) {
                         all_timestamps.push(unix_ts);
+                        msg_ts = Some(unix_ts);
 
                         // Update first_seen / last_seen
                         first_seen = Some(first_seen.map_or(unix_ts, |fs: i64| fs.min(unix_ts)));
@@ -97,6 +101,7 @@ impl Provider for ClaudeCodeProvider {
                                 .entry(session_id.to_string())
                                 .or_default()
                                 .push(unix_ts);
+                            msg_session_id = Some(session_id.to_string());
 
                             if !is_subagent {
                                 non_subagent_session_ids.insert(session_id.to_string());
@@ -150,8 +155,20 @@ impl Provider for ClaudeCodeProvider {
                             entry.tokens.cache_read_tokens =
                                 entry.tokens.cache_read_tokens.saturating_add(cache_read);
                             entry.tokens.compute_total();
+
+                            // Emit daily-bucket event (input + output; cache tokens excluded,
+                            // matching TokenUsage::compute_total convention).
+                            if let Some(ts) = msg_ts {
+                                let event_tokens = input_tokens.saturating_add(output_tokens);
+                                events.push((ts, event_tokens, msg_session_id.clone()));
+                            }
                         }
                     }
+                } else if let Some(ts) = msg_ts {
+                    // Non-assistant events still contribute to daily activity timestamps
+                    // so per-day `hours` reflects real session work, not just token-emitting
+                    // assistant replies.
+                    events.push((ts, 0, msg_session_id.clone()));
                 }
             }
         }
@@ -182,6 +199,11 @@ impl Provider for ClaudeCodeProvider {
 
         if !models.is_empty() {
             result.models = Some(models);
+        }
+
+        let daily_buckets = time_util::build_daily_buckets(&events);
+        if !daily_buckets.is_empty() {
+            result.daily_buckets = Some(daily_buckets);
         }
 
         Ok(result)
