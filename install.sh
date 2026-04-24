@@ -53,12 +53,26 @@ if [ -w "$INSTALL_DIR" ]; then
     mv "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/"
 else
     echo "Installing to $INSTALL_DIR (requires sudo)..."
-    sudo mv "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/"
+    if ! sudo mv "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/"; then
+        echo ""
+        echo "❌ Install failed — sudo couldn't write to $INSTALL_DIR."
+        echo ""
+        echo "Options:"
+        echo "  1) Re-run and enter your sudo password:"
+        echo "     curl -sSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh"
+        echo "  2) Install to a path you own (no sudo needed):"
+        echo "     INSTALL_DIR=\"\$HOME/.local/bin\" curl -sSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh"
+        echo "     (make sure \$HOME/.local/bin is on your PATH)"
+        echo ""
+        echo "Your existing howmuchiai binary (if any) was NOT replaced — running"
+        echo "\`howmuchiai\` will still use the old version until install succeeds."
+        exit 1
+    fi
 fi
 
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
 echo ""
-echo "Installed howmuchiai to $INSTALL_DIR/$BINARY_NAME"
+echo "✓ Installed howmuchiai to $INSTALL_DIR/$BINARY_NAME"
 echo "Run it: howmuchiai"
 echo ""
