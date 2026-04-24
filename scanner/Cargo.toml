@@ -21,3 +21,6 @@ base64 = "0.22"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 regex = "1"
+uuid = { version = "1", features = ["v4"] }
+hostname = "0.4"
+flate2 = "1"

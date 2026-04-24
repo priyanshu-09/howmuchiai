@@ -1,3 +1,4 @@
+pub mod device_id;
 pub mod platform;
 pub mod providers;
 pub mod sqlite_util;
@@ -7,7 +8,7 @@ pub mod types;
 use providers::{all_providers, detection};
 use rayon::prelude::*;
 use std::collections::HashMap;
-use types::{ScanResult, Totals};
+use types::{ScanResult, Totals, SCHEMA_VERSION};
 
 /// Run all providers in parallel, collect results, compute totals.
 pub fn run_scan() -> ScanResult {
@@ -61,11 +62,19 @@ pub fn run_scan() -> ScanResult {
 
     let elapsed = start.elapsed();
 
+    // Load (or first-run create) the per-machine UUID + best-effort hostname
+    // label. Both are stamped onto the scan so the web dashboard can
+    // aggregate multiple devices under one account.
+    let device_id = device_id::load_or_create();
+    let device_label = device_id::hostname_label();
+
     ScanResult {
         scanned_at: chrono::Utc::now().to_rfc3339(),
-        schema_version: 2,
+        schema_version: SCHEMA_VERSION,
         platform: platform::detect_platform().to_string(),
         scan_duration_ms: elapsed.as_millis() as u64,
+        device_id,
+        device_label,
         sources,
         totals,
         detected_tools,
