@@ -103,10 +103,25 @@ fn main() {
             let hash = encode_share_hash(&result).unwrap_or_default();
             let url = format!("{}/c/{}", WEBSITE_BASE, hash);
 
-            // URL to stdout (pipeable)
-            println!("{}", url);
+            // Output policy:
+            //   - Interactive tty: just tell the user we're opening their card.
+            //     The full URL is visually jarring and the browser open handles
+            //     the common case. Use `howmuchiai --no-open` or pipe to see it.
+            //   - Piped / redirected stdout: emit URL so `howmuchiai | pbcopy`
+            //     and similar scripting flows still work.
+            //   - `--no-open`: print URL (caller explicitly opted out of the
+            //     browser hand-off, they need the URL).
+            let stdout_is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+            if !stdout_is_tty || cli.no_open {
+                println!("{}", url);
+            }
 
-            eprintln!("  \x1b[90mYour card \u{2192} open the link above\x1b[0m");
+            if stdout_is_tty {
+                eprintln!(
+                    "  \x1b[1m\u{2713}\x1b[0m Your card is ready \u{2192} \x1b[90mopening in your browser\u{2026}\x1b[0m"
+                );
+                eprintln!("  \x1b[90m(pass --no-open to print the URL instead)\x1b[0m");
+            }
 
             // Auto-open browser
             if !cli.no_open {
