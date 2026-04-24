@@ -100,8 +100,16 @@ pub struct Totals {
     pub invocations: u64,
 }
 
+/// JSON schema version for ScanResult.
+///
+/// History:
+/// * v1 — initial release
+/// * v2 — added daily_buckets to provider results
+/// * v3 — added device_id + device_label; share hash is gzip-then-base64url
+pub const SCHEMA_VERSION: u32 = 3;
+
 fn default_schema_version() -> u32 {
-    2
+    SCHEMA_VERSION
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +119,13 @@ pub struct ScanResult {
     pub schema_version: u32,
     pub platform: String,
     pub scan_duration_ms: u64,
+    /// Stable UUID v4 identifying this machine. Persisted at the OS-appropriate
+    /// config dir (see `device_id::load_or_create`). Lets the web dashboard
+    /// aggregate scans across multiple devices under one account.
+    pub device_id: String,
+    /// User-friendly label (typically hostname) — best-effort, may be `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_label: Option<String>,
     pub sources: HashMap<String, ProviderResult>,
     pub totals: Totals,
     pub detected_tools: Vec<String>,

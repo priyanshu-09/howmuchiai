@@ -1,7 +1,46 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use clap::Parser;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use howmuchiai::types::ScanResult;
+use std::io::Write;
 
 const WEBSITE_BASE: &str = "https://howmuchiai.xyz";
+
+/// Encode a ScanResult into a share-URL-safe hash:
+///
+/// 1. Serialize JSON
+/// 2. gzip (best compression — runs once per scan, 50ms is fine)
+/// 3. base64url, no padding
+///
+/// On a full scan the raw JSON reaches ~85 KB, which is over Cloudflare
+/// Pages' `_redirects` rewrite buffer and triggers error 1036 in URL-length-
+/// strict browsers (Dia, Safari). Gzip brings it under ~20 KB.
+fn encode_share_hash(scan: &ScanResult) -> Result<String, std::io::Error> {
+    let scan_json = serde_json::to_vec(scan)?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(&scan_json)?;
+    let gz = encoder.finish()?;
+    Ok(URL_SAFE_NO_PAD.encode(gz))
+}
+
+/// Count providers whose result metadata is `{ "skipped": "tcc-denied" }`.
+/// macOS Full Disk Access (TCC) gates `~/Library/Safari/*` behind a Finder grant
+/// the CLI cannot self-issue, so a denied provider returns Ok(empty) with
+/// this sentinel rather than aborting the whole scan.
+fn count_tcc_denied(result: &ScanResult) -> usize {
+    result
+        .sources
+        .values()
+        .filter(|p| {
+            p.metadata
+                .as_ref()
+                .and_then(|m| m.get("skipped"))
+                .and_then(|v| v.as_str())
+                == Some("tcc-denied")
+        })
+        .count()
+}
 
 #[derive(Parser)]
 #[command(name = "howmuchiai", about = "Scan your machine for AI tool usage")]
@@ -59,9 +98,9 @@ fn main() {
                 eprintln!("  {}\n", parts.join(" \u{2022} "));
             }
 
-            // Encode scan data as base64url hash
-            let scan_json = serde_json::to_string(&result).unwrap_or_default();
-            let hash = URL_SAFE_NO_PAD.encode(&scan_json);
+            // Encode scan data as gzip + base64url hash. Always gzip — no
+            // sentinel prefix, no fallback. Web decoder always gunzips.
+            let hash = encode_share_hash(&result).unwrap_or_default();
             let url = format!("{}/c/{}", WEBSITE_BASE, hash);
 
             // URL to stdout (pipeable)
@@ -72,6 +111,23 @@ fn main() {
             // Auto-open browser
             if !cli.no_open {
                 let _ = open_browser(&url);
+            }
+
+            // TCC (Full Disk Access) hint — fires when ≥1 provider returned
+            // skipped=tcc-denied (e.g. Safari on a terminal without FDA).
+            let skipped = count_tcc_denied(&result);
+            if skipped > 0 {
+                eprintln!();
+                eprintln!(
+                    "\u{26a0}  {} provider(s) skipped due to macOS Full Disk Access.",
+                    skipped
+                );
+                eprintln!(
+                    "    Grant access: System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access"
+                );
+                eprintln!(
+                    "    \u{2192} add your terminal app (Terminal / iTerm / Ghostty / etc.)."
+                );
             }
         }
     }

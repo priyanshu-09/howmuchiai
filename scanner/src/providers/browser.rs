@@ -547,7 +547,41 @@ impl Provider for SafariProvider {
     fn scan(&self) -> Result<ProviderResult, ScanError> {
         let path = platform::safari_history_path()
             .ok_or_else(|| ScanError::NotFound("Safari history not found".into()))?;
-        scan_safari_history(&path)
+        match scan_safari_history(&path) {
+            Ok(r) => Ok(r),
+            Err(e) if is_tcc_denied(&e) => {
+                eprintln!("safari: skipped (Full Disk Access not granted to 'howmuchiai')");
+                let mut result = ProviderResult::new("Safari");
+                result.hours = Some(0.0);
+                result.visits = Some(0);
+                let mut metadata = HashMap::new();
+                metadata.insert(
+                    "skipped".to_string(),
+                    serde_json::Value::String("tcc-denied".to_string()),
+                );
+                result.metadata = Some(metadata);
+                Ok(result)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// Detect macOS TCC (Full Disk Access) permission denials.
+///
+/// macOS gates `~/Library/Safari/*` behind Full Disk Access. When the CLI runs
+/// from a terminal that hasn't been granted access, reads surface as either:
+///   - `io::ErrorKind::PermissionDenied` (EACCES) from `std::fs::copy`
+///   - `rusqlite::Error::SqliteFailure` with code `CannotOpen` / `PermDenied`
+fn is_tcc_denied(err: &ScanError) -> bool {
+    match err {
+        ScanError::Io(io_err) => io_err.kind() == std::io::ErrorKind::PermissionDenied,
+        ScanError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) => matches!(
+            code.code,
+            rusqlite::ErrorCode::PermissionDenied | rusqlite::ErrorCode::CannotOpen
+        ),
+        ScanError::PermissionDenied(_) => true,
+        _ => false,
     }
 }
 
