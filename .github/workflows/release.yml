@@ -60,7 +60,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.2.2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # Shallow checkout is fine — we only need Cargo.toml + git tag list.
           fetch-depth: 1
@@ -128,10 +128,10 @@ jobs:
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.2.2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@1780873c34f7f2a06b8eece84559e3ed14c5dd7c # v1.12.0
+        uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7 # v1.16.0
         with:
           toolchain: stable
           target: ${{ matrix.target }}
@@ -140,7 +140,7 @@ jobs:
           cache: false
 
       - name: Cache cargo registry and target/
-        uses: swatinem/rust-cache@f13886b937689c021905d5f90c1d843efe0fbb17 # v2.8.1
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           # Key by target so Linux x86_64 and Linux aarch64 don't evict each
           # other despite sharing the same runner OS.
@@ -213,7 +213,7 @@ jobs:
           ls -1
 
       - name: Create GitHub Release and upload assets
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         env:
           # GITHUB_TOKEN is the only secret this workflow touches. Scoped to
           # this step; not exported to any shell step above.
