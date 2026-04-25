@@ -179,6 +179,11 @@ fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUs
     let reader = std::io::BufReader::new(file);
 
     let mut current_model: Option<String> = None;
+    // Track the previous cumulative `total_token_usage` per model so we can
+    // synthesise a per-turn delta when `last_token_usage` is null (older
+    // Codex CLI versions, aborted turns). Mirrors ccusage's
+    // `subtractRawUsage(totalUsage, previousTotals)` fallback.
+    let mut prev_total_per_model: HashMap<String, (u64, u64, u64, u64)> = HashMap::new();
 
     for line in reader.lines() {
         let line = match line {
@@ -224,29 +229,97 @@ fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUs
             Some(i) => i,
             None => continue,
         };
-        // Per-turn delta. Codex sometimes emits a token_count with last == null
-        // (e.g. on an aborted turn); we skip those rather than guess.
-        let last = match info.get("last_token_usage") {
-            Some(v) if !v.is_null() => v,
-            _ => continue,
-        };
 
-        let raw_input = last
-            .get("input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let output_tokens = last
-            .get("output_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let reasoning_tokens = last
-            .get("reasoning_output_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let cached_input = last
-            .get("cached_input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let model_name = current_model
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Prefer `last_token_usage` (per-turn delta). When it's null —
+        // older Codex CLI versions and aborted turns — synthesise a delta
+        // by subtracting the previous cumulative `total_token_usage` for
+        // this model from the current one. ccusage does the same so we
+        // don't undercount on those events.
+        let last_obj = info.get("last_token_usage");
+        let total_obj = info.get("total_token_usage");
+
+        let (raw_input, output_tokens, reasoning_tokens, cached_input) =
+            if let Some(last) = last_obj.filter(|v| !v.is_null()) {
+                (
+                    last.get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    last.get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    last.get("reasoning_output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    last.get("cached_input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                )
+            } else if let Some(total) = total_obj.filter(|v| !v.is_null()) {
+                let cur_in = total
+                    .get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cur_out = total
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cur_reasoning = total
+                    .get("reasoning_output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cur_cached = total
+                    .get("cached_input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let (prev_in, prev_out, prev_reasoning, prev_cached) = prev_total_per_model
+                    .get(&model_name)
+                    .copied()
+                    .unwrap_or((0, 0, 0, 0));
+                prev_total_per_model.insert(
+                    model_name.clone(),
+                    (cur_in, cur_out, cur_reasoning, cur_cached),
+                );
+                (
+                    cur_in.saturating_sub(prev_in),
+                    cur_out.saturating_sub(prev_out),
+                    cur_reasoning.saturating_sub(prev_reasoning),
+                    cur_cached.saturating_sub(prev_cached),
+                )
+            } else {
+                continue;
+            };
+
+        // If we used `last_token_usage`, also keep `prev_total_per_model`
+        // up to date so a subsequent null-last event can fall back cleanly.
+        if last_obj.map(|v| !v.is_null()).unwrap_or(false) {
+            if let Some(total) = total_obj.filter(|v| !v.is_null()) {
+                prev_total_per_model.insert(
+                    model_name.clone(),
+                    (
+                        total
+                            .get("input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        total
+                            .get("output_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        total
+                            .get("reasoning_output_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        total
+                            .get("cached_input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                    ),
+                );
+            }
+        }
 
         // Strip cache hits out of `input_tokens` so the field carries the
         // same "uncached input" meaning as Anthropic's. Saturating sub
@@ -256,10 +329,6 @@ fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUs
         if uncached_input == 0 && output_tokens == 0 && reasoning_tokens == 0 && cached_input == 0 {
             continue;
         }
-
-        let model_name = current_model
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
 
         let entry = models.entry(model_name).or_insert_with(|| ModelUsage {
             tokens: TokenUsage::default(),
@@ -316,8 +385,9 @@ mod tests {
         assert_eq!(codex.tokens.output_tokens, 1_150);
         // cache_read = sum of cached_input = 2000+12000+18000 = 32000
         assert_eq!(codex.tokens.cache_read_tokens, 32_000);
-        // total = input + output (cache excluded), per TokenUsage::compute_total
-        assert_eq!(codex.tokens.total, 14_150);
+        // total = input + output + cache_read + cache_creation per launch-ready
+        // compute_total (matches openusage / ccusage / CodexBar conventions).
+        assert_eq!(codex.tokens.total, 46_150);
     }
 
     #[test]
@@ -345,12 +415,39 @@ mod tests {
     }
 
     #[test]
-    fn skips_null_last_token_usage_and_old_response_item_path() {
-        // Aborted-turn token_count has last == null. Old `response_item` path
-        // (now defunct) should not contribute either.
+    fn falls_back_to_total_token_usage_when_last_is_null() {
+        // Older Codex CLI versions and aborted-turn events emit a
+        // token_count with `last_token_usage: null` but a populated
+        // `total_token_usage`. The parser should subtract the previous
+        // cumulative to synthesise a per-turn delta — same behaviour as
+        // ccusage's subtractRawUsage fallback.
         let lines = [
             r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
-            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":99999},"last_token_usage":null}}}"#,
+            // First event: cumulative 1000 in / 100 out — no prior, so the full
+            // amount becomes the delta.
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"output_tokens":100,"cached_input_tokens":0,"reasoning_output_tokens":0},"last_token_usage":null}}}"#,
+            // Second event: cumulative 3000 in / 250 out — delta is 2000 / 150.
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":3000,"output_tokens":250,"cached_input_tokens":500,"reasoning_output_tokens":0},"last_token_usage":null}}}"#,
+        ];
+        let f = write_jsonl(&lines);
+        let mut models = HashMap::new();
+        scan_codex_jsonl(f.path(), &mut models);
+
+        let codex = models.get("gpt-5.3-codex").expect("model populated");
+        // Synthesised deltas: input=1000+2000=3000 (raw), cached=0+500=500,
+        // uncached input = 3000 - 500 = 2500. output = 100 + 150 = 250.
+        assert_eq!(codex.tokens.input_tokens, 2_500);
+        assert_eq!(codex.tokens.output_tokens, 250);
+        assert_eq!(codex.tokens.cache_read_tokens, 500);
+    }
+
+    #[test]
+    fn ignores_legacy_response_item_path() {
+        // `response_item` events used to carry token usage on older Codex
+        // builds; the new parser strictly looks at event_msg/token_count and
+        // should not accidentally pick up these legacy fields.
+        let lines = [
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
             r#"{"type":"response_item","payload":{"model":"gpt-5.3-codex","info":{"total_token_usage":{"input_tokens":99999,"output_tokens":99999}}}}"#,
             r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100}}}}"#,
         ];
@@ -359,8 +456,7 @@ mod tests {
         scan_codex_jsonl(f.path(), &mut models);
 
         let codex = models.get("gpt-5.3-codex").expect("model populated");
-        // Only the third event counts. The null-last and the old
-        // response_item path must contribute zero.
+        // Only the event_msg/token_count event contributes; response_item is ignored.
         assert_eq!(codex.tokens.input_tokens, 1_000);
         assert_eq!(codex.tokens.output_tokens, 100);
     }
