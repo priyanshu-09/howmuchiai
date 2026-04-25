@@ -175,10 +175,14 @@ impl Provider for ClaudeCodeProvider {
                                 entry.tokens.cache_read_tokens.saturating_add(cache_read);
                             entry.tokens.compute_total();
 
-                            // Emit daily-bucket event (input + output; cache tokens excluded,
-                            // matching TokenUsage::compute_total convention).
+                            // Emit daily-bucket event. We sum all four fields so the heatmap
+                            // intensity matches the headline tokens number (which now
+                            // includes cache, post-launch-ready compute_total change).
                             if let Some(ts) = msg_ts {
-                                let event_tokens = input_tokens.saturating_add(output_tokens);
+                                let event_tokens = input_tokens
+                                    .saturating_add(output_tokens)
+                                    .saturating_add(cache_creation)
+                                    .saturating_add(cache_read);
                                 events.push((ts, event_tokens, msg_session_id.clone()));
                             }
                         }

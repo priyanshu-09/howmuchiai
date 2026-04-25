@@ -12,9 +12,16 @@ pub struct TokenUsage {
 
 impl TokenUsage {
     pub fn compute_total(&mut self) {
-        // Total = input + output only. Cache tokens are tracked separately
-        // because cache_read inflates totals by 10-100x (re-reads of cached prompts).
-        self.total = self.input_tokens + self.output_tokens;
+        // Total = input + output + cache_read + cache_creation. This matches
+        // what ccusage / openusage / CodexBar report ("tokens processed by
+        // the model"), so users comparing across tools see consistent
+        // numbers. Cost math doesn't read this — it walks the per-field
+        // values with per-field rates from src/lib/pricing.ts on the web.
+        self.total = self
+            .input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_read_tokens)
+            .saturating_add(self.cache_creation_tokens);
     }
 
     pub fn merge(&mut self, other: &TokenUsage) {
