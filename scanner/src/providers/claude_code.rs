@@ -59,6 +59,14 @@ impl Provider for ClaudeCodeProvider {
         let mut last_seen: Option<i64> = None;
         let mut events: Vec<(i64, u64, Option<String>)> = Vec::new();
 
+        // Cross-file dedup of assistant messages by (message.id, requestId).
+        // Resumed Claude Code sessions copy the entire prior turn-list into the
+        // new JSONL file, so the same assistant message commonly appears in
+        // multiple files. Without this, totals inflate roughly with the number
+        // of resumes per conversation. Falls through (no dedup) when either id
+        // is missing — older logs predate these fields.
+        let mut seen_assistant_msgs: HashSet<String> = HashSet::new();
+
         for path in &paths {
             let is_subagent = path.to_string_lossy().contains("/subagents/");
 
@@ -114,6 +122,17 @@ impl Provider for ClaudeCodeProvider {
                 let msg_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 if msg_type == "assistant" {
                     if let Some(message) = value.get("message") {
+                        // Dedup before accumulating. Same (message.id, requestId)
+                        // appearing in another resumed-session JSONL is the same
+                        // billed turn, not a new one.
+                        let msg_id = message.get("id").and_then(|v| v.as_str());
+                        let req_id = value.get("requestId").and_then(|v| v.as_str());
+                        if let (Some(mid), Some(rid)) = (msg_id, req_id) {
+                            if !seen_assistant_msgs.insert(format!("{}:{}", mid, rid)) {
+                                continue;
+                            }
+                        }
+
                         if let Some(usage) = message.get("usage") {
                             let input_tokens = usage
                                 .get("input_tokens")

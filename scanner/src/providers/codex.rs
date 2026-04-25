@@ -152,13 +152,33 @@ impl Provider for CodexProvider {
     }
 }
 
-/// Parse a Codex session JSONL file for per-model token usage
+/// Parse a Codex session JSONL file for per-model token usage.
+///
+/// Codex CLI ≥ 0.114 emits per-turn token deltas in `event_msg` events with
+/// `payload.type == "token_count"`, not in `response_item`. Each event carries
+/// `info.last_token_usage` (per-turn delta) and `info.total_token_usage`
+/// (session-cumulative). We accumulate `last_token_usage` so multiple events
+/// in one session sum without double-counting.
+///
+/// The active model lives in `turn_context.payload.model` and can change
+/// mid-session (e.g. switching from gpt-5.4 to gpt-5.3-codex). Each
+/// `token_count` event is attributed to whichever model was last announced.
+///
+/// Field mapping into TokenUsage. Note OpenAI reports `input_tokens` as the
+/// TOTAL input including cache hits, with `cached_input_tokens` as a subset.
+/// Anthropic reports them disjoint. To normalize, we subtract:
+///   input_tokens − cached_input_tokens → input_tokens   (uncached input)
+///   cached_input_tokens                → cache_read_tokens
+///   output_tokens                      → output_tokens  (regular completion)
+///   reasoning_output_tokens            → output_tokens  (billed at output rate)
 fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUsage>) {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return,
     };
     let reader = std::io::BufReader::new(file);
+
+    let mut current_model: Option<String> = None;
 
     for line in reader.lines() {
         let line = match line {
@@ -176,46 +196,70 @@ fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUs
         };
 
         let entry_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if entry_type != "response_item" {
-            continue;
-        }
-
-        // Extract model from payload
         let payload = match value.get("payload") {
             Some(p) => p,
             None => continue,
         };
 
-        let model_name = payload
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("unknown")
-            .to_string();
+        // Track active model from turn_context events.
+        if entry_type == "turn_context" {
+            if let Some(m) = payload.get("model").and_then(|v| v.as_str()) {
+                let trimmed = m.trim();
+                if !trimmed.is_empty() {
+                    current_model = Some(trimmed.to_string());
+                }
+            }
+            continue;
+        }
 
-        // Look for total_token_usage in payload.info
+        // The token_count event is wrapped inside event_msg.
+        if entry_type != "event_msg" {
+            continue;
+        }
+        if payload.get("type").and_then(|t| t.as_str()) != Some("token_count") {
+            continue;
+        }
+
         let info = match payload.get("info") {
             Some(i) => i,
             None => continue,
         };
-
-        let token_usage = match info.get("total_token_usage") {
-            Some(tu) => tu,
-            None => continue,
+        // Per-turn delta. Codex sometimes emits a token_count with last == null
+        // (e.g. on an aborted turn); we skip those rather than guess.
+        let last = match info.get("last_token_usage") {
+            Some(v) if !v.is_null() => v,
+            _ => continue,
         };
 
-        let input_tokens = token_usage
+        let raw_input = last
             .get("input_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        let output_tokens = token_usage
+        let output_tokens = last
             .get("output_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        let cache_read = token_usage
-            .get("cache_read_input_tokens")
-            .or_else(|| token_usage.get("cached_tokens"))
+        let reasoning_tokens = last
+            .get("reasoning_output_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+        let cached_input = last
+            .get("cached_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Strip cache hits out of `input_tokens` so the field carries the
+        // same "uncached input" meaning as Anthropic's. Saturating sub
+        // protects against malformed events where cached > input.
+        let uncached_input = raw_input.saturating_sub(cached_input);
+
+        if uncached_input == 0 && output_tokens == 0 && reasoning_tokens == 0 && cached_input == 0 {
+            continue;
+        }
+
+        let model_name = current_model
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
 
         let entry = models.entry(model_name).or_insert_with(|| ModelUsage {
             tokens: TokenUsage::default(),
@@ -223,9 +267,117 @@ fn scan_codex_jsonl(path: &std::path::Path, models: &mut HashMap<String, ModelUs
             hours: 0.0,
         });
 
-        entry.tokens.input_tokens = entry.tokens.input_tokens.saturating_add(input_tokens);
-        entry.tokens.output_tokens = entry.tokens.output_tokens.saturating_add(output_tokens);
-        entry.tokens.cache_read_tokens = entry.tokens.cache_read_tokens.saturating_add(cache_read);
+        entry.tokens.input_tokens = entry.tokens.input_tokens.saturating_add(uncached_input);
+        entry.tokens.output_tokens = entry
+            .tokens
+            .output_tokens
+            .saturating_add(output_tokens)
+            .saturating_add(reasoning_tokens);
+        entry.tokens.cache_read_tokens =
+            entry.tokens.cache_read_tokens.saturating_add(cached_input);
         entry.tokens.compute_total();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn write_jsonl(lines: &[&str]) -> NamedTempFile {
+        let mut f = NamedTempFile::new().expect("tempfile");
+        for line in lines {
+            writeln!(f, "{}", line).unwrap();
+        }
+        f.flush().unwrap();
+        f
+    }
+
+    #[test]
+    fn parses_per_turn_deltas_and_subtracts_cache_from_input() {
+        // Single-model session: three token_count events. last_token_usage
+        // values should accumulate (no cumulative double count). Cached input
+        // should be split out of `input_tokens`.
+        let lines = [
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10000,"cached_input_tokens":2000,"output_tokens":500,"reasoning_output_tokens":100}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":15000,"cached_input_tokens":12000,"output_tokens":300,"reasoning_output_tokens":50}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20000,"cached_input_tokens":18000,"output_tokens":200,"reasoning_output_tokens":0}}}}"#,
+        ];
+        let f = write_jsonl(&lines);
+        let mut models = HashMap::new();
+        scan_codex_jsonl(f.path(), &mut models);
+
+        let codex = models.get("gpt-5.3-codex").expect("model populated");
+        // uncached input = (10000-2000) + (15000-12000) + (20000-18000) = 13000
+        assert_eq!(codex.tokens.input_tokens, 13_000);
+        // output = 500+300+200 + reasoning 100+50+0 = 1150
+        assert_eq!(codex.tokens.output_tokens, 1_150);
+        // cache_read = sum of cached_input = 2000+12000+18000 = 32000
+        assert_eq!(codex.tokens.cache_read_tokens, 32_000);
+        // total = input + output (cache excluded), per TokenUsage::compute_total
+        assert_eq!(codex.tokens.total, 14_150);
+    }
+
+    #[test]
+    fn attributes_to_active_model_through_mid_session_switch() {
+        // turn_context flips from gpt-5.4 to gpt-5.3-codex; tokens after the
+        // switch belong to gpt-5.3-codex, not the earlier model.
+        let lines = [
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100}}}}"#,
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":2000,"cached_input_tokens":500,"output_tokens":200}}}}"#,
+        ];
+        let f = write_jsonl(&lines);
+        let mut models = HashMap::new();
+        scan_codex_jsonl(f.path(), &mut models);
+
+        let a = models.get("gpt-5.4").expect("first model populated");
+        assert_eq!(a.tokens.input_tokens, 1_000);
+        assert_eq!(a.tokens.output_tokens, 100);
+
+        let b = models.get("gpt-5.3-codex").expect("second model populated");
+        assert_eq!(b.tokens.input_tokens, 1_500); // 2000 - 500 cached
+        assert_eq!(b.tokens.output_tokens, 200);
+        assert_eq!(b.tokens.cache_read_tokens, 500);
+    }
+
+    #[test]
+    fn skips_null_last_token_usage_and_old_response_item_path() {
+        // Aborted-turn token_count has last == null. Old `response_item` path
+        // (now defunct) should not contribute either.
+        let lines = [
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":99999},"last_token_usage":null}}}"#,
+            r#"{"type":"response_item","payload":{"model":"gpt-5.3-codex","info":{"total_token_usage":{"input_tokens":99999,"output_tokens":99999}}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100}}}}"#,
+        ];
+        let f = write_jsonl(&lines);
+        let mut models = HashMap::new();
+        scan_codex_jsonl(f.path(), &mut models);
+
+        let codex = models.get("gpt-5.3-codex").expect("model populated");
+        // Only the third event counts. The null-last and the old
+        // response_item path must contribute zero.
+        assert_eq!(codex.tokens.input_tokens, 1_000);
+        assert_eq!(codex.tokens.output_tokens, 100);
+    }
+
+    #[test]
+    fn falls_back_to_unknown_when_no_turn_context_yet() {
+        // Some sessions emit token_count before the first turn_context.
+        // Those tokens are real and should be tracked under "unknown".
+        let lines = [
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":50}}}}"#,
+        ];
+        let f = write_jsonl(&lines);
+        let mut models = HashMap::new();
+        scan_codex_jsonl(f.path(), &mut models);
+
+        let unknown = models.get("unknown").expect("fallback model");
+        assert_eq!(unknown.tokens.input_tokens, 500);
+        assert_eq!(unknown.tokens.output_tokens, 50);
     }
 }
