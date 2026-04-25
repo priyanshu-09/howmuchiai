@@ -68,14 +68,35 @@ pub fn load_or_create() -> String {
 
 /// Best-effort hostname for a human-readable device label.
 /// Returns `None` if the OS lookup fails or the result is empty / non-UTF-8.
+///
+/// Strips common mDNS / search-domain suffixes (`.local`, `.lan`, `.home`,
+/// `.localdomain`) so a hostname like `example-host.local` uploads as
+/// `example-host` — the suffix is noise from the user's POV and a
+/// marginally more identifiable string in aggregate. The hostname itself
+/// can still leak the user's real name; callers that want to opt out
+/// should pass `--no-hostname` (TODO).
 pub fn hostname_label() -> Option<String> {
     let raw = hostname::get().ok()?.into_string().ok()?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
+        return None;
+    }
+    let stripped = strip_mdns_suffix(trimmed);
+    if stripped.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(stripped.to_string())
     }
+}
+
+fn strip_mdns_suffix(host: &str) -> &str {
+    let lower = host.to_lowercase();
+    for suffix in [".localdomain", ".local", ".lan", ".home"] {
+        if lower.ends_with(suffix) {
+            return &host[..host.len() - suffix.len()];
+        }
+    }
+    host
 }
 
 /// Cheap UUID v4 sanity check — guards against accidentally re-using a
@@ -101,5 +122,16 @@ mod tests {
         assert!(!is_valid_uuid_v4(""));
         assert!(!is_valid_uuid_v4("not-a-uuid"));
         assert!(!is_valid_uuid_v4("xxxx"));
+    }
+
+    #[test]
+    fn strips_mdns_suffix() {
+        assert_eq!(strip_mdns_suffix("example-host.local"), "example-host");
+        assert_eq!(strip_mdns_suffix("workstation.lan"), "workstation");
+        assert_eq!(strip_mdns_suffix("router.home"), "router");
+        assert_eq!(strip_mdns_suffix("server.localdomain"), "server");
+        assert_eq!(strip_mdns_suffix("plain"), "plain");
+        // Case-insensitive on the suffix
+        assert_eq!(strip_mdns_suffix("foo.LOCAL"), "foo");
     }
 }
