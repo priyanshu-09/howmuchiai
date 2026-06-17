@@ -223,7 +223,10 @@ fn extract_chat_tokens(
                     continue;
                 };
 
-                let input = tokens_obj.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
+                let input = tokens_obj
+                    .get("input")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let cached = tokens_obj
                     .get("cached")
                     .and_then(|v| v.as_u64())
@@ -255,13 +258,14 @@ fn extract_chat_tokens(
                 output_sum = output_sum.saturating_add(output);
 
                 if let Some(model) = value.get("model").and_then(|v| v.as_str()) {
-                    let entry = models.entry(model.to_string()).or_insert_with(|| ModelUsage {
-                        tokens: TokenUsage::default(),
-                        sessions: 0,
-                        hours: 0.0,
-                    });
-                    entry.tokens.output_tokens =
-                        entry.tokens.output_tokens.saturating_add(output);
+                    let entry = models
+                        .entry(model.to_string())
+                        .or_insert_with(|| ModelUsage {
+                            tokens: TokenUsage::default(),
+                            sessions: 0,
+                            hours: 0.0,
+                        });
+                    entry.tokens.output_tokens = entry.tokens.output_tokens.saturating_add(output);
                 }
 
                 // Bucket this unique turn's output tokens by its timestamp date.
@@ -390,9 +394,15 @@ mod tests {
         // All rows belong to the single session "sess-1" (header sessionId ==
         // checkpoint parent dir name), so input/cached are ONE per-session max:
         // input max = 320, cached max = 25. Never the sum of every row.
-        assert_eq!(tokens.input_tokens, 320, "input is per-session MAX snapshot");
+        assert_eq!(
+            tokens.input_tokens, 320,
+            "input is per-session MAX snapshot"
+        );
         assert_eq!(tokens.cache_read_tokens, 25, "cached is per-session MAX");
-        assert_eq!(tokens.cache_creation_tokens, 0, "Gemini has no cache-create");
+        assert_eq!(
+            tokens.cache_creation_tokens, 0,
+            "Gemini has no cache-create"
+        );
 
         // compute_total = input + output + cached + 0 = 320 + 60 + 25 = 405.
         // Crucially NOT the cumulative raw `.total` sum (116+169+234+353+378).
@@ -409,7 +419,9 @@ mod tests {
         let event_output: u64 = events.iter().map(|(_, t, _)| *t).sum();
         assert_eq!(event_output, 60, "event tokens match deduped output sum");
         assert!(
-            events.iter().all(|(_, _, sid)| sid.as_deref() == Some("sess-1")),
+            events
+                .iter()
+                .all(|(_, _, sid)| sid.as_deref() == Some("sess-1")),
             "every event is attributed to the resolved sessionId"
         );
     }
