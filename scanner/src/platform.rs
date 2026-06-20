@@ -156,16 +156,23 @@ pub fn claude_desktop_sessions_dir() -> Option<PathBuf> {
     None
 }
 
-// --- ChatGPT Desktop ---
+// --- ChatGPT Desktop / Atlas ---
+
+/// Installed OpenAI desktop apps (Atlas supersedes legacy `com.openai.chat` on many Macs).
+pub fn chatgpt_desktop_dirs() -> Vec<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    let home = home_dir();
+    ["com.openai.atlas", "com.openai.chat"]
+        .iter()
+        .map(|name| home.join("Library/Application Support").join(name))
+        .filter(|p| p.exists())
+        .collect()
+}
 
 pub fn chatgpt_desktop_dir() -> Option<PathBuf> {
-    if cfg!(target_os = "macos") {
-        let p = home_dir().join("Library/Application Support/com.openai.chat");
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
+    chatgpt_desktop_dirs().into_iter().next()
 }
 
 // --- Cursor ---

@@ -2,14 +2,12 @@ use crate::platform;
 use crate::providers::Provider;
 use crate::sqlite_util::SafeSqlite;
 use crate::time_util;
+use crate::token_estimate::count_tokens;
 use crate::types::{ProviderResult, ScanError, TokenUsage};
 use std::collections::HashMap;
-use tiktoken_rs::cl100k_base;
 
 pub struct CursorProvider;
 
-/// Cursor does not log per-request token usage locally. This note is stamped on
-/// every estimated count so downstream dashboards never treat it as telemetry.
 const ESTIMATE_METHOD: &str = "cl100k_base tokenizer over locally stored bubble text (text, thinking, toolFormerData params/result, attachedCodeChunks). Excludes server-side context, cache reads, and bubbles with no stored text. Not per-project.";
 
 impl Provider for CursorProvider {
@@ -176,11 +174,6 @@ type BubbleTokenEvent = (i64, u64, Option<String>);
 ///   * Ignore native `tokenCount` / `usageData` — uniformly zero on this Cursor
 ///     version and not telemetry.
 fn extract_bubble_tokens(db: &SafeSqlite) -> (TokenUsage, Vec<BubbleTokenEvent>) {
-    let bpe = match cl100k_base() {
-        Ok(b) => b,
-        Err(_) => return (TokenUsage::default(), Vec::new()),
-    };
-
     let mut input_sum: u64 = 0;
     let mut output_sum: u64 = 0;
     let mut token_events: Vec<BubbleTokenEvent> = Vec::new();
@@ -218,7 +211,7 @@ fn extract_bubble_tokens(db: &SafeSqlite) -> (TokenUsage, Vec<BubbleTokenEvent>)
             continue;
         }
 
-        let count = bpe.encode_with_special_tokens(&text).len() as u64;
+        let count = count_tokens(&text);
         if count == 0 {
             continue;
         }
@@ -321,16 +314,8 @@ fn bubble_composer_id(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token_estimate::{count_tokens, ESTIMATE_METHOD_PREFIX};
     use rusqlite::Connection;
-
-    // cl100k_base loads encoding tables; reuse across tests.
-    fn test_bpe() -> tiktoken_rs::CoreBPE {
-        cl100k_base().expect("cl100k_base")
-    }
-
-    fn count_text(text: &str) -> u64 {
-        test_bpe().encode_with_special_tokens(text).len() as u64
-    }
 
     #[test]
     fn collect_bubble_text_gathers_all_fields() {
@@ -399,8 +384,8 @@ mod tests {
         let db = SafeSqlite::open(&db_path).expect("safe open");
         let (tokens, events) = extract_bubble_tokens(&db);
 
-        let user_count = count_text("Hello world");
-        let asst_count = count_text("Hi there\nhmm");
+        let user_count = count_tokens("Hello world");
+        let asst_count = count_tokens("Hi there\nhmm");
         assert_eq!(tokens.input_tokens, user_count);
         assert_eq!(tokens.output_tokens, asst_count);
         assert_eq!(tokens.total, user_count + asst_count);
@@ -422,7 +407,7 @@ mod tests {
 
         let db = SafeSqlite::open(&db_path).expect("safe open");
         let (tokens, _) = extract_bubble_tokens(&db);
-        assert_eq!(tokens.input_tokens, count_text("ok"));
+        assert_eq!(tokens.input_tokens, count_tokens("ok"));
         assert_eq!(tokens.output_tokens, 0);
     }
 
@@ -430,7 +415,7 @@ mod tests {
     fn scan_result_marks_tokens_as_estimated() {
         // Verify the estimate marker constants are wired — integration with the
         // real global DB is covered by the release-binary cross-check.
-        assert!(ESTIMATE_METHOD.contains("cl100k_base"));
+        assert!(ESTIMATE_METHOD.contains(ESTIMATE_METHOD_PREFIX));
         assert!(ESTIMATE_METHOD.contains("Excludes"));
     }
 

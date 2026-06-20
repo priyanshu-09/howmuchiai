@@ -128,7 +128,10 @@ pub struct Totals {
 /// * v3 — added device_id + device_label; share hash is gzip-then-base64url
 /// * v4 — added tokens_estimated / tokens_estimate_method on providers;
 ///   totals.estimated_tokens separate from totals.tokens
-pub const SCHEMA_VERSION: u32 = 4;
+/// * v5 — per-domain browser metadata: tokens, tokens_estimated,
+///   tokens_unavailable on metadata.domains entries
+/// * v6 — per-domain `tokens_estimate_evidence` (local data exhaustion audit)
+pub const SCHEMA_VERSION: u32 = 6;
 
 fn default_schema_version() -> u32 {
     SCHEMA_VERSION
