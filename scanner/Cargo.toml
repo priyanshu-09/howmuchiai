@@ -24,3 +24,4 @@ regex = "1"
 uuid = { version = "1", features = ["v4"] }
 hostname = "0.4"
 flate2 = "1"
+tiktoken-rs = "0.12.0"

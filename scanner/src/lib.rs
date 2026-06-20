@@ -90,7 +90,12 @@ fn format_provider_stats(result: &types::ProviderResult) -> String {
     }
     if let Some(ref t) = result.tokens {
         if t.total > 0 {
-            parts.push(format!("{} tokens", format_compact(t.total)));
+            let label = if result.tokens_estimated {
+                format!("~{} est. tokens", format_compact(t.total))
+            } else {
+                format!("{} tokens", format_compact(t.total))
+            };
+            parts.push(label);
         }
     }
     if let Some(s) = result.sessions {
@@ -124,6 +129,7 @@ fn format_compact(n: u64) -> String {
 fn compute_totals(sources: &HashMap<String, types::ProviderResult>) -> Totals {
     let mut hours = 0.0_f64;
     let mut tokens = 0_u64;
+    let mut estimated_tokens = 0_u64;
     let mut sessions = 0_u64;
     let mut visits = 0_u64;
     let mut invocations = 0_u64;
@@ -133,7 +139,11 @@ fn compute_totals(sources: &HashMap<String, types::ProviderResult>) -> Totals {
             hours += h;
         }
         if let Some(ref t) = result.tokens {
-            tokens = tokens.saturating_add(t.total);
+            if result.tokens_estimated {
+                estimated_tokens = estimated_tokens.saturating_add(t.total);
+            } else {
+                tokens = tokens.saturating_add(t.total);
+            }
         }
         if let Some(s) = result.sessions {
             sessions = sessions.saturating_add(s);
@@ -149,8 +159,39 @@ fn compute_totals(sources: &HashMap<String, types::ProviderResult>) -> Totals {
     Totals {
         hours,
         tokens,
+        estimated_tokens,
         sessions,
         visits,
         invocations,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{ProviderResult, TokenUsage};
+
+    #[test]
+    fn compute_totals_excludes_estimated_provider_tokens() {
+        let mut real = ProviderResult::new("Real");
+        let mut real_tokens = TokenUsage::default();
+        real_tokens.output_tokens = 100;
+        real_tokens.compute_total();
+        real.tokens = Some(real_tokens);
+
+        let mut est = ProviderResult::new("Cursor");
+        let mut est_tokens = TokenUsage::default();
+        est_tokens.output_tokens = 50_000;
+        est_tokens.compute_total();
+        est.tokens = Some(est_tokens);
+        est.tokens_estimated = true;
+
+        let mut sources = HashMap::new();
+        sources.insert("real".into(), real);
+        sources.insert("cursor".into(), est);
+
+        let totals = compute_totals(&sources);
+        assert_eq!(totals.tokens, 100);
+        assert_eq!(totals.estimated_tokens, 50_000);
     }
 }

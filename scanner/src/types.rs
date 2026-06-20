@@ -78,6 +78,13 @@ pub struct ProviderResult {
     pub metadata: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub daily_buckets: Option<std::collections::HashMap<String, DailyBucket>>,
+    /// When true, `tokens` is a local approximation (e.g. tokenizer over chat
+    /// transcript text) — NOT provider-logged usage. Excluded from `totals.tokens`.
+    #[serde(default)]
+    pub tokens_estimated: bool,
+    /// Human-readable note on how estimated tokens were derived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_estimate_method: Option<String>,
 }
 
 impl ProviderResult {
@@ -94,6 +101,8 @@ impl ProviderResult {
             last_seen: None,
             metadata: None,
             daily_buckets: None,
+            tokens_estimated: false,
+            tokens_estimate_method: None,
         }
     }
 }
@@ -101,7 +110,11 @@ impl ProviderResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Totals {
     pub hours: f64,
+    /// Sum of provider-logged token usage only (excludes `tokens_estimated`).
     pub tokens: u64,
+    /// Sum of locally-estimated token counts (e.g. Cursor transcript tokenization).
+    #[serde(default)]
+    pub estimated_tokens: u64,
     pub sessions: u64,
     pub visits: u64,
     pub invocations: u64,
@@ -113,7 +126,9 @@ pub struct Totals {
 /// * v1 — initial release
 /// * v2 — added daily_buckets to provider results
 /// * v3 — added device_id + device_label; share hash is gzip-then-base64url
-pub const SCHEMA_VERSION: u32 = 3;
+/// * v4 — added tokens_estimated / tokens_estimate_method on providers;
+///   totals.estimated_tokens separate from totals.tokens
+pub const SCHEMA_VERSION: u32 = 4;
 
 fn default_schema_version() -> u32 {
     SCHEMA_VERSION
