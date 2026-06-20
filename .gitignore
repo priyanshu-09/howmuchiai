@@ -24,6 +24,12 @@ Thumbs.db
 *.d
 *.exe
 
+# Web dashboard patch
+web/node_modules/
+
+# Local browser automation logs
+.playwright-mcp/
+
 # Claude Code state (plans, memories, session data)
 .remember/
 .claude/

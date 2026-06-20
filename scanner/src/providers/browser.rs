@@ -1,3 +1,4 @@
+use crate::browser_transcripts::{enrich_domain_entry, rollup_domain_estimates};
 use crate::platform;
 use crate::providers::Provider;
 use crate::sqlite_util::SafeSqlite;
@@ -182,19 +183,53 @@ fn scan_chromium_history(
 
         domain_breakdown.insert(
             domain_name.clone(),
-            serde_json::json!({
-                "visits": visit_count,
-                "hours": (domain_hours * 100.0).round() / 100.0,
-            }),
+            enrich_domain_entry(
+                serde_json::json!({
+                    "visits": visit_count,
+                    "hours": (domain_hours * 100.0).round() / 100.0,
+                }),
+                domain_name,
+                domain_hours,
+            ),
         );
     }
 
+    finalize_browser_result(
+        provider_name,
+        total_hours,
+        total_visits,
+        first_seen,
+        last_seen,
+        &all_timestamps,
+        domain_breakdown,
+    )
+}
+
+/// Attach per-domain token estimates/unavailable markers and roll up provider totals.
+fn finalize_browser_result(
+    provider_name: &str,
+    total_hours: f64,
+    total_visits: u64,
+    first_seen: Option<i64>,
+    last_seen: Option<i64>,
+    all_timestamps: &[i64],
+    domain_breakdown: HashMap<String, serde_json::Value>,
+) -> Result<ProviderResult, ScanError> {
     let mut result = ProviderResult::new(provider_name);
     result.hours = Some(total_hours);
     result.visits = Some(total_visits);
     result.first_seen = first_seen;
     result.last_seen = last_seen;
-    result.daily_buckets = build_daily_buckets(&all_timestamps);
+    result.daily_buckets = build_daily_buckets(all_timestamps);
+
+    if let Some(rolled) = rollup_domain_estimates(&domain_breakdown) {
+        if rolled.total > 0 {
+            result.tokens = Some(rolled);
+            result.tokens_estimated = true;
+            result.tokens_estimate_method =
+                Some("cl100k_base over Chrome IndexedDB transcripts in metadata.domains".into());
+        }
+    }
 
     let mut metadata = HashMap::new();
     metadata.insert(
@@ -280,28 +315,26 @@ fn scan_safari_history(path: &std::path::Path) -> Result<ProviderResult, ScanErr
 
         domain_breakdown.insert(
             domain_name.clone(),
-            serde_json::json!({
-                "visits": visit_count,
-                "hours": (domain_hours * 100.0).round() / 100.0,
-            }),
+            enrich_domain_entry(
+                serde_json::json!({
+                    "visits": visit_count,
+                    "hours": (domain_hours * 100.0).round() / 100.0,
+                }),
+                domain_name,
+                domain_hours,
+            ),
         );
     }
 
-    let mut result = ProviderResult::new("Safari");
-    result.hours = Some(total_hours);
-    result.visits = Some(total_visits);
-    result.first_seen = first_seen;
-    result.last_seen = last_seen;
-    result.daily_buckets = build_daily_buckets(&all_timestamps);
-
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "domains".to_string(),
-        serde_json::to_value(&domain_breakdown).unwrap_or_default(),
-    );
-    result.metadata = Some(metadata);
-
-    Ok(result)
+    finalize_browser_result(
+        "Safari",
+        total_hours,
+        total_visits,
+        first_seen,
+        last_seen,
+        &all_timestamps,
+        domain_breakdown,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -396,28 +429,26 @@ fn scan_firefox_history(paths: &[PathBuf]) -> Result<ProviderResult, ScanError> 
 
         domain_breakdown.insert(
             domain_name.clone(),
-            serde_json::json!({
-                "visits": visit_count,
-                "hours": (domain_hours * 100.0).round() / 100.0,
-            }),
+            enrich_domain_entry(
+                serde_json::json!({
+                    "visits": visit_count,
+                    "hours": (domain_hours * 100.0).round() / 100.0,
+                }),
+                domain_name,
+                domain_hours,
+            ),
         );
     }
 
-    let mut result = ProviderResult::new("Firefox");
-    result.hours = Some(total_hours);
-    result.visits = Some(total_visits);
-    result.first_seen = first_seen;
-    result.last_seen = last_seen;
-    result.daily_buckets = build_daily_buckets(&all_timestamps);
-
-    let mut metadata = HashMap::new();
-    metadata.insert(
-        "domains".to_string(),
-        serde_json::to_value(&domain_breakdown).unwrap_or_default(),
-    );
-    result.metadata = Some(metadata);
-
-    Ok(result)
+    finalize_browser_result(
+        "Firefox",
+        total_hours,
+        total_visits,
+        first_seen,
+        last_seen,
+        &all_timestamps,
+        domain_breakdown,
+    )
 }
 
 // ---------------------------------------------------------------------------
